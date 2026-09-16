@@ -106,6 +106,22 @@ export function overrideIsEmpty(ov: RuleOverride | undefined | null): boolean {
   return !Object.keys(ov).some((k) => (k === 'params' ? Object.keys(ov.params ?? {}).length > 0 : (ov as Record<string, unknown>)[k] !== undefined))
 }
 
+/**
+ * Drop the parts of an override that equal `base` (the values it sits on top of: the global
+ * effective values for a project override). Returns null when nothing is left, so a value
+ * flipped back by hand reads as "not overridden" and the reset button goes dim.
+ */
+export function pruneOverride(ov: RuleOverride | undefined, base: EffectiveRule['effective']): RuleOverride | null {
+  if (!ov) return null
+  const out: RuleOverride = {}
+  if (ov.enabled !== undefined && ov.enabled !== base.enabled) out.enabled = ov.enabled
+  if (ov.severity !== undefined && ov.severity !== base.severity) out.severity = ov.severity
+  const params: Record<string, number | string | boolean> = {}
+  for (const [k, v] of Object.entries(ov.params ?? {})) if (base.params[k] !== v) params[k] = v
+  if (Object.keys(params).length) out.params = params
+  return overrideIsEmpty(out) ? null : out
+}
+
 /** Project override on top of the global one (params merge key by key). */
 export function mergeOverride(global: RuleOverride | undefined, project: RuleOverride | undefined): RuleOverride | undefined {
   if (!global && !project) return undefined
@@ -118,7 +134,11 @@ export function withProjectOverride(projects: PcbProject[], projectId: string, c
     if (p.id !== projectId) return p
     const next = { ...(p.ruleOverrides ?? {}) }
     if (ov === null) delete next[code]
-    else next[code] = { ...(next[code] ?? {}), ...ov, params: { ...(next[code]?.params ?? {}), ...(ov.params ?? {}) } }
+    else {
+      const params = { ...(next[code]?.params ?? {}), ...(ov.params ?? {}) }
+      const { params: _p, ...rest } = { ...(next[code] ?? {}), ...ov }
+      next[code] = Object.keys(params).length ? { ...rest, params } : rest
+    }
     return { ...p, ruleOverrides: next }
   })
 }

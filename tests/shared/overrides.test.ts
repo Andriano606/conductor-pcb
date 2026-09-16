@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyOverrides, mergeOverride, overrideIsEmpty, validateRule, withProjectOverride } from '@shared/rules'
+import { applyOverrides, mergeOverride, overrideIsEmpty, pruneOverride, validateRule, withProjectOverride } from '@shared/rules'
 import { sampleRule } from '../helpers/sample'
 import type { PcbProject } from '@shared/types'
 
@@ -19,6 +19,7 @@ describe('project-scoped overrides', () => {
     const l2 = withProjectOverride(l1, 'p1', 'R1', { enabled: false })
     expect(l2[0].ruleOverrides?.R1).toEqual({ enabled: false, params: { thr: 9 } })
     expect(withProjectOverride(l2, 'p1', 'R1', null)[0].ruleOverrides).toEqual({})
+    expect(withProjectOverride([proj], 'p1', 'R1', { enabled: false })[0].ruleOverrides).toEqual({ R1: { enabled: false } }) // no empty params
   })
 })
 
@@ -29,6 +30,13 @@ describe('validateRule check block', () => {
     expect(overrideIsEmpty({ params: {} })).toBe(true)
     expect(overrideIsEmpty({ enabled: false })).toBe(false)
     expect(overrideIsEmpty({ params: { thr: 1 } })).toBe(false)
+  })
+  it('pruneOverride keeps only what differs from the base values', () => {
+    const base = { enabled: true, severity: 'warning' as const, params: { thr: 3 } }
+    expect(pruneOverride({ enabled: true, severity: 'warning', params: { thr: 3 } }, base)).toBeNull()
+    expect(pruneOverride({ enabled: false, params: { thr: 3 } }, base)).toEqual({ enabled: false })
+    expect(pruneOverride({ params: { thr: 5 } }, base)).toEqual({ params: { thr: 5 } })
+    expect(pruneOverride(undefined, base)).toBeNull()
   })
   it('requires check.kernel for pcbagent rules and validates its shape', () => {
     const noCheck = { ...sampleRule(), check: undefined }

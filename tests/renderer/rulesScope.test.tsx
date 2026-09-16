@@ -124,11 +124,7 @@ describe('rules scope', () => {
     fireEvent.click(screen.getByText('Rule B'))
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Rule B')
     expect(screen.queryByText('як у глобальних')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Скинути B_RULE до типових')).toBeDisabled()
-    useStore.setState({ config: { activeProjectId: 'p1', overrides: { B_RULE: { severity: 'info' } }, projects: [p1] } as never })
-    await vi.waitFor(() => expect(screen.getByLabelText('Скинути B_RULE до типових')).toBeEnabled())
-    fireEvent.click(screen.getByLabelText('Скинути B_RULE до типових'))
-    await vi.waitFor(() => expect(api.setConfig).toHaveBeenCalledWith({ overrides: { B_RULE: null } }))
+    expect(screen.queryByLabelText(/Скинути .* до типових/)).not.toBeInTheDocument() // no reset in the global window
   })
   it('the import modal stacks above the global rules window', () => {
     mockApi()

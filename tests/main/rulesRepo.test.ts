@@ -19,6 +19,7 @@ import { sampleRule } from '../helpers/sample'
 import { initStore, setConfig } from '../../src/main/store'
 import { deleteProjectRules, deleteUserRule, getRules, projectRulesDir, reloadRules, saveUserRule, setProjectRulesRoot, snapshot } from '../../src/main/rulesRepo'
 import { handle } from '../../src/main/api'
+import { setProjectRuleOverride } from '../../src/main/projects'
 import type { IncomingMessage, ServerResponse } from 'http'
 
 mkdirSync(join(tmp, 'rules'), { recursive: true })
@@ -72,6 +73,19 @@ describe('project-scoped rules', () => {
     expect(getRules('p1').find((r) => r.code === 'A_RULE')?.effective.enabled).toBe(true)
     expect(getRules('p2').find((r) => r.code === 'A_RULE')?.effective.enabled).toBe(false)
     expect(getRules().find((r) => r.code === 'A_RULE')?.effective.enabled).toBe(false)
+  })
+  it('a project override flipped back to the global value disappears', () => {
+    setConfig({ overrides: { A_RULE: { enabled: false } } })
+    setProjectRuleOverride('p2', 'A_RULE', { enabled: true })
+    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ enabled: true })
+    setProjectRuleOverride('p2', 'A_RULE', { params: { thr: 3 } }) // equals the default → not kept
+    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ enabled: true })
+    setProjectRuleOverride('p2', 'A_RULE', { enabled: false }) // back to the global value → gone
+    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toBeUndefined()
+    setProjectRuleOverride('p2', 'A_RULE', { params: { thr: 7 } })
+    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ params: { thr: 7 } })
+    setProjectRuleOverride('p2', 'A_RULE', null)
+    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toBeUndefined()
   })
   it('the HTTP API saves and deletes project rules with ?project=', async () => {
     const put = await req('PUT', '/api/rules/VIA_API?project=p2', sampleRule({ code: 'VIA_API' }))

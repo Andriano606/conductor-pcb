@@ -2,12 +2,12 @@ import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { basename } from 'path'
 import type { AppConfig, ChatAttachment, ClaudeProfile, CustomPrompt, EnvVar, Rule, RuleOverride } from '../shared/types'
-import { exportCheckerConfig, withProjectOverride } from '../shared/rules'
+import { exportCheckerConfig } from '../shared/rules'
 import { addClaudeProfile, addCustomPrompt, getConfig, getConfigPath, removeClaudeProfile, removeCustomPrompt, setConfig, updateClaudeProfile, updateCustomPrompt } from './store'
 import { deleteUserRule, getRules, reloadRules, saveUserRule, snapshot, startWatching } from './rulesRepo'
 import { apiStatus, getLastReport, setLastReport, startApi } from './api'
 import type { ChatAnswer, PcbProject } from '../shared/types'
-import { addProjectFromDir, closeChatSession, createChatSession, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, renameChatSession, runCheck, setProjectProfiles, startSessionChat, updateProject } from './projects'
+import { addProjectFromDir, closeChatSession, createChatSession, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, renameChatSession, runCheck, setProjectProfiles, setProjectRuleOverride, startSessionChat, updateProject } from './projects'
 import { isClaudeConfigDir } from './configMerge'
 import { pollUsage, refreshUsageSoon } from './usagePoller'
 import { answerChat, attachChat, interruptChat, sendChatMessage, setChatParams } from './claudeChat'
@@ -15,7 +15,7 @@ import { answerChat, attachChat, interruptChat, sendChatMessage, setChatParams }
 export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle('rules:snapshot', (_e, projectId?: string) => snapshot(projectId))
   ipcMain.handle('rules:setProjectOverride', (_e, projectId: string, code: string, ov: RuleOverride | null) => {
-    setConfig({ projects: withProjectOverride(getConfig().projects, projectId, code, ov) })
+    setProjectRuleOverride(projectId, code, ov)
     return snapshot(projectId)
   })
   ipcMain.handle('rules:reload', () => {

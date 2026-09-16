@@ -3,10 +3,11 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 
 import { homedir } from 'os'
 import { spawn } from 'child_process'
 import { join } from 'path'
-import type { ChatSession, CheckResult, FindingsReport, PcbProject, KicadStatus } from '../shared/types'
+import type { ChatSession, CheckResult, FindingsReport, PcbProject, KicadStatus, RuleOverride } from '../shared/types'
 import { addSession, findSession, projectFromFiles, removeProject, removeSession, renameSession, updateSession, upsertProject } from '../shared/projects'
+import { pruneOverride, withProjectOverride } from '../shared/rules'
 import { getConfig, setConfig } from './store'
-import { bundledRulesDir, deleteProjectRules } from './rulesRepo'
+import { bundledRulesDir, deleteProjectRules, getRule } from './rulesRepo'
 import { buildMergedConfig } from './configMerge'
 import type { ClaudeProfile } from '../shared/types'
 import { buildEnv } from './env'
@@ -28,6 +29,23 @@ export function deleteProject(id: string): void {
   const cfg = getConfig()
   const projects = removeProject(cfg.projects, id)
   setConfig({ projects, activeProjectId: cfg.activeProjectId === id ? projects[0]?.id : cfg.activeProjectId })
+}
+
+/**
+ * Merge `ov` into a project's override for `code` (null removes it), then keep only what
+ * differs from the global effective values, so the override disappears once the user flips
+ * everything back by hand.
+ */
+export function setProjectRuleOverride(projectId: string, code: string, ov: RuleOverride | null): void {
+  let projects = withProjectOverride(getConfig().projects, projectId, code, ov)
+  const global = getRule(code)
+  if (ov !== null && global) {
+    const merged = projects.find((p) => p.id === projectId)?.ruleOverrides?.[code]
+    projects = withProjectOverride(projects, projectId, code, null)
+    const pruned = pruneOverride(merged, global.effective)
+    if (pruned) projects = withProjectOverride(projects, projectId, code, pruned)
+  }
+  setConfig({ projects })
 }
 
 export function updateProject(id: string, patch: Partial<PcbProject>): PcbProject | undefined {
