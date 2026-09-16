@@ -6,6 +6,7 @@ import { useStore } from '../store'
 import { RuleView } from './RuleView'
 import { SeverityDot } from './SeverityBadge'
 import { Toggle } from './Toggle'
+import { ResetRuleButton } from './ResetRuleButton'
 
 /**
  * The global rule library in one big window (opened from settings): every bundled and user
@@ -57,6 +58,7 @@ export function GlobalRulesModal(): JSX.Element {
           </div>
           <div className="row-tight">
             <button className="btn subtle" onClick={() => setImportScope('global')}>Імпортувати правило…</button>
+            <ResetRuleButton code={current?.code ?? null} scope="global" />
             <button className="btn subtle" title="Перечитати файли правил" onClick={() => void reload()}>Перечитати</button>
             <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Закрити">✕</button>
           </div>

@@ -457,7 +457,9 @@ a { color: var(--accent); }
 .rule-row.toggled.active { background: var(--bg-4); }
 .scope-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .scope-badge.changed { background: oklch(0.78 0.15 80 / 0.2); color: var(--warn); }
-.reset-btn { align-self: flex-end; white-space: nowrap; }
+.icon-btn.danger { color: var(--danger); display: inline-flex; align-items: center; }
+.icon-btn.danger:hover { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+.icon-btn:disabled { opacity: 0.35; cursor: default; background: transparent; }
 .src-badge.project { background: oklch(0.7 0.1 250 / 0.2); color: var(--info); }
 .link.danger { color: var(--danger); }
 

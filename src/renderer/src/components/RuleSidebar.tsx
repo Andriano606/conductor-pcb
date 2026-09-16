@@ -4,6 +4,7 @@ import { CATEGORIES } from '@shared/types'
 import { useStore } from '../store'
 import { SeverityDot } from './SeverityBadge'
 import { Toggle } from './Toggle'
+import { ResetRuleButton } from './ResetRuleButton'
 
 export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element {
   const selected = useStore((s) => s.selected)
@@ -43,6 +44,7 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
         </div>
         <div className="row-tight">
           <button className="icon-btn" title={scopeProject ? `Імпортувати правило з JSON лише для проекту ${scopeProject.name}` : 'Імпортувати правило з JSON'} onClick={() => setImportScope(ruleScope)} aria-label="Імпортувати правило">⤓</button>
+          <ResetRuleButton code={selected} scope={ruleScope} />
         </div>
       </div>
       <div className="sidebar-tools">

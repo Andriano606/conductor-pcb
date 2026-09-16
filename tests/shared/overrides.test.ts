@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyOverrides, mergeOverride, validateRule, withProjectOverride } from '@shared/rules'
+import { applyOverrides, mergeOverride, overrideIsEmpty, validateRule, withProjectOverride } from '@shared/rules'
 import { sampleRule } from '../helpers/sample'
 import type { PcbProject } from '@shared/types'
 
@@ -23,6 +23,13 @@ describe('project-scoped overrides', () => {
 })
 
 describe('validateRule check block', () => {
+  it('overrideIsEmpty ignores empty params objects', () => {
+    expect(overrideIsEmpty(undefined)).toBe(true)
+    expect(overrideIsEmpty({})).toBe(true)
+    expect(overrideIsEmpty({ params: {} })).toBe(true)
+    expect(overrideIsEmpty({ enabled: false })).toBe(false)
+    expect(overrideIsEmpty({ params: { thr: 1 } })).toBe(false)
+  })
   it('requires check.kernel for pcbagent rules and validates its shape', () => {
     const noCheck = { ...sampleRule(), check: undefined }
     expect(validateRule(noCheck).join()).toMatch(/check:/)

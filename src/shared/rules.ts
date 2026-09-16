@@ -100,6 +100,12 @@ export function applyOverrides(rules: Rule[], overrides: AppConfig['overrides'],
   return rules.map((r) => applyOverride(r, mergeOverride(overrides[r.code], projectOverrides?.[r.code])))
 }
 
+/** True when an override actually changes something (an empty `params` object counts as nothing). */
+export function overrideIsEmpty(ov: RuleOverride | undefined | null): boolean {
+  if (!ov) return true
+  return !Object.keys(ov).some((k) => (k === 'params' ? Object.keys(ov.params ?? {}).length > 0 : (ov as Record<string, unknown>)[k] !== undefined))
+}
+
 /** Project override on top of the global one (params merge key by key). */
 export function mergeOverride(global: RuleOverride | undefined, project: RuleOverride | undefined): RuleOverride | undefined {
   if (!global && !project) return undefined

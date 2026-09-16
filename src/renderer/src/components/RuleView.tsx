@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { EffectiveRule, RuleOverride, Severity } from '@shared/types'
+import type { EffectiveRule, Severity } from '@shared/types'
+import { overrideIsEmpty } from '@shared/rules'
 import { CATEGORIES, SEVERITY_LABEL } from '@shared/types'
 import { useStore } from '../store'
 import { BoardDiagram } from './BoardDiagram'
@@ -18,7 +19,6 @@ export function RuleView({ rule, scope }: { rule: EffectiveRule; scope?: string 
   const storeScope = useStore((s) => s.ruleScope)
   const ruleScope = scope ?? storeScope
   const setOverrideStore = useStore((s) => s.setOverride)
-  const resetOverride = useStore((s) => s.resetOverride)
   const deleteRule = useStore((s) => s.deleteRule)
   const askConfirm = useStore((s) => s.askConfirm)
   const report = useStore((s) => s.report)
@@ -28,11 +28,7 @@ export function RuleView({ rule, scope }: { rule: EffectiveRule; scope?: string 
   const hits = report?.findings.filter((f) => f.code === rule.code) ?? []
   const scopeProject = ruleScope === 'global' ? null : projects.find((p) => p.id === ruleScope)
   const projectOverride = scopeProject?.ruleOverrides?.[rule.code]
-  const nonEmpty = (ov: RuleOverride | undefined): boolean => !!ov && Object.keys(ov).some((k) => (k === 'params' ? Object.keys(ov.params ?? {}).length > 0 : true))
-  const hasProjectOverride = nonEmpty(projectOverride)
-  const hasGlobalOverride = nonEmpty(config?.overrides[rule.code])
-  // what «Скинути до типових» undoes: the project's override (back to the global values) or the global one (back to the rule file)
-  const canReset = scopeProject ? hasProjectOverride : hasGlobalOverride
+  const hasProjectOverride = !overrideIsEmpty(projectOverride)
   const cat = CATEGORIES.find((c) => c.id === rule.category)?.label ?? rule.category
   const setOverride = (code: string, ov: Parameters<typeof setOverrideStore>[1]): Promise<void> => setOverrideStore(code, ov, ruleScope)
   const deletable = rule.source === 'project' ? (ruleScope !== 'global' ? ruleScope : null) : rule.source === 'user' ? 'global' : null
@@ -72,10 +68,6 @@ export function RuleView({ rule, scope }: { rule: EffectiveRule; scope?: string 
               ))}
             </select>
           </label>
-          <button className="btn subtle reset-btn" disabled={!canReset} onClick={() => void resetOverride(rule.code, ruleScope)}
-            title={scopeProject ? 'Прибрати зміни цього проекту: рівень, увімкненість і пороги знову як у глобальних' : 'Прибрати глобальні зміни: рівень, увімкненість і пороги як у файлі правила'}>
-            Скинути до типових
-          </button>
         </div>
       </header>
 
