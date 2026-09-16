@@ -452,9 +452,9 @@ a { color: var(--accent); }
 .global-rules-list .sidebar-footer code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; display: inline-block; vertical-align: bottom; }
 .global-rules-content { flex: 1; min-width: 0; overflow-y: auto; }
 .global-rules-content .rule { padding: 20px 28px 40px; }
-.rule-row.switch { padding: 4px 8px 4px 6px; gap: 8px; }
+.rule-row.toggled { padding: 4px 8px 4px 6px; gap: 8px; }
 .rule-row-btn { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; background: transparent; border: 0; color: inherit; padding: 3px 0; }
-.rule-row.switch.active { background: var(--bg-4); }
+.rule-row.toggled.active { background: var(--bg-4); }
 .scope-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .scope-badge.changed { background: oklch(0.78 0.15 80 / 0.2); color: var(--warn); }
 .reset-btn { align-self: flex-end; white-space: nowrap; }

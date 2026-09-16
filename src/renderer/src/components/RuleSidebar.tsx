@@ -78,7 +78,7 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
           <section key={g.id} className="group">
             <div className="group-title">{g.label}</div>
             {g.rules.map((r) => (
-              <div key={r.code} className={'rule-row switch' + (r.code === selected ? ' active' : '') + (r.effective.enabled ? '' : ' disabled')}>
+              <div key={r.code} className={'rule-row toggled' + (r.code === selected ? ' active' : '') + (r.effective.enabled ? '' : ' disabled')}>
                 <Toggle size="xs" checked={r.effective.enabled} onChange={(v) => void setOverride(r.code, { enabled: v })}
                   label={scopeProject ? `Увімкнути ${r.code} для проекту ${scopeProject.name}` : `Увімкнути ${r.code}`} />
                 <button className="rule-row-btn" onClick={() => select(r.code)} title={r.summary}>
