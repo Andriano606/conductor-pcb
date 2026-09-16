@@ -1,0 +1,151 @@
+{
+  "code": "ANTENNA_KEEPOUT",
+  "title": "Мідь у зоні антени",
+  "category": "signal",
+  "severity": "error",
+  "summary": "Під і навколо антени (Wi-Fi, BLE, LoRa) не має бути полігонів, трас і компонентів.",
+  "description": "Для корпусів з позначенням `ANT*`/`AE*` або модулів з антеною перевіряч бере rule-area з назвою, що містить `antenna`, або прямокутник за габаритом антени, розширений на `antenna_keepout_margin`, і шукає в ньому будь-яку мідь на всіх шарах.\n\nАнтена впізнається за позначенням (`antenna_ref_regex`), за словом `antenna` у назві корпусу або за rule-area, у назві якої є `antenna`.",
+  "why": "Антена настроєна на роботу над вільним простором. Мідь під нею змінює резонансну частоту й забирає ефективність: дальність падає в рази, модуль не проходить сертифікацію.",
+  "fix": "Виріжте всі зони під антеною (rule-area на всі шари), винесіть антену на край плати, дотримуйтеся рекомендацій виробника модуля щодо зони keepout.",
+  "params": [
+    {
+      "key": "antenna_keepout_margin",
+      "label": "Запас навколо антени",
+      "unit": "мм",
+      "type": "number",
+      "default": 5,
+      "min": 0,
+      "max": 20,
+      "step": 0.5
+    },
+    {
+      "key": "antenna_ref_regex",
+      "label": "Регулярний вираз позначень антен",
+      "type": "string",
+      "default": "^(ANT|AE)\\d*"
+    }
+  ],
+  "checker": {
+    "engine": "pcbagent",
+    "function": "check_antenna_keepout",
+    "measures": "мідь на будь-якому шарі у зоні антени плюс запас"
+  },
+  "check": {
+    "kernel": "antenna_keepout",
+    "emits": "ANTENNA_KEEPOUT",
+    "args": {}
+  },
+  "tags": [
+    "антена",
+    "RF",
+    "keepout",
+    "Wi-Fi",
+    "BLE"
+  ],
+  "references": [
+    {
+      "title": "Espressif: ESP32 Hardware Design Guidelines, розділ Antenna"
+    }
+  ],
+  "examples": {
+    "bad": {
+      "w": 26,
+      "h": 14,
+      "verdict": "bad",
+      "caption": "Полігон GND залитий під антеною модуля.",
+      "items": [
+        {
+          "t": "board",
+          "x": 0,
+          "y": 0,
+          "w": 26,
+          "h": 14
+        },
+        {
+          "t": "zone",
+          "x": 0.5,
+          "y": 0.5,
+          "w": 25,
+          "h": 13,
+          "layer": "B",
+          "net": "GND"
+        },
+        {
+          "t": "part",
+          "x": 8,
+          "y": 2,
+          "w": 12,
+          "h": 8,
+          "label": "U5 ESP32",
+          "kind": "ic"
+        },
+        {
+          "t": "part",
+          "x": 8,
+          "y": 10.2,
+          "w": 12,
+          "h": 2.6,
+          "label": "антена",
+          "kind": "generic"
+        },
+        {
+          "t": "mark",
+          "x": 14,
+          "y": 11.5,
+          "r": 2.5
+        }
+      ]
+    },
+    "good": {
+      "w": 26,
+      "h": 14,
+      "verdict": "good",
+      "caption": "Антена на краю плати, під нею виріз у полігоні.",
+      "items": [
+        {
+          "t": "board",
+          "x": 0,
+          "y": 0,
+          "w": 26,
+          "h": 14
+        },
+        {
+          "t": "zone",
+          "x": 0.5,
+          "y": 0.5,
+          "w": 25,
+          "h": 9,
+          "layer": "B",
+          "net": "GND"
+        },
+        {
+          "t": "keepout",
+          "x": 3,
+          "y": 9.8,
+          "w": 22,
+          "h": 3.9,
+          "label": "antenna keepout"
+        },
+        {
+          "t": "part",
+          "x": 8,
+          "y": 1.5,
+          "w": 12,
+          "h": 8,
+          "label": "U5 ESP32",
+          "kind": "ic"
+        },
+        {
+          "t": "part",
+          "x": 8,
+          "y": 10.5,
+          "w": 12,
+          "h": 2.6,
+          "label": "антена",
+          "kind": "generic"
+        }
+      ]
+    }
+  },
+  "enabled": true
+}

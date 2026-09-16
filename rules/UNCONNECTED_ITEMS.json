@@ -1,0 +1,124 @@
+{
+  "code": "UNCONNECTED_UNCONNECTED_ITEMS",
+  "title": "Незʼєднані елементи (KiCad DRC)",
+  "category": "drc",
+  "severity": "error",
+  "summary": "KiCad бачить ratsnest, який не закритий міддю.",
+  "description": "Вбудована перевірка KiCad `unconnected_items` з блоку `unconnected_items` JSON-звіту DRC. Дублює `UNROUTED_NET`, але враховує заливку зон так само, як KiCad під час експорту Gerber.",
+  "why": "Плата з незакритим ratsnest не працює. KiCad не заборонить експорт, тож це має ловитися до відправки на виробництво.",
+  "fix": "Розведіть з'єднання. Якщо KiCad показує незʼєднаність через незалиту зону, спочатку перезалийте зони.",
+  "params": [],
+  "checker": {
+    "engine": "kicad-drc",
+    "function": "unconnected_items",
+    "measures": "кількість незакритих з'єднань у ratsnest"
+  },
+  "check": {
+    "kernel": "kicad_drc",
+    "emits": "UNCONNECTED_UNCONNECTED_ITEMS",
+    "args": {}
+  },
+  "tags": [
+    "DRC",
+    "ratsnest"
+  ],
+  "references": [],
+  "examples": {
+    "bad": {
+      "w": 16,
+      "h": 8,
+      "verdict": "bad",
+      "caption": "Ratsnest між двома площадками не розведений.",
+      "items": [
+        {
+          "t": "board",
+          "x": 0,
+          "y": 0,
+          "w": 16,
+          "h": 8
+        },
+        {
+          "t": "pad",
+          "x": 3,
+          "y": 4,
+          "w": 1.2,
+          "h": 1.2,
+          "net": "N1"
+        },
+        {
+          "t": "pad",
+          "x": 13,
+          "y": 4,
+          "w": 1.2,
+          "h": 1.2,
+          "net": "N1"
+        },
+        {
+          "t": "track",
+          "pts": [
+            [
+              3,
+              4
+            ],
+            [
+              13,
+              4
+            ]
+          ],
+          "w": 0.05,
+          "layer": "F",
+          "net": "N1",
+          "bad": true
+        }
+      ]
+    },
+    "good": {
+      "w": 16,
+      "h": 8,
+      "verdict": "good",
+      "caption": "З'єднання розведене.",
+      "items": [
+        {
+          "t": "board",
+          "x": 0,
+          "y": 0,
+          "w": 16,
+          "h": 8
+        },
+        {
+          "t": "pad",
+          "x": 3,
+          "y": 4,
+          "w": 1.2,
+          "h": 1.2,
+          "net": "N1"
+        },
+        {
+          "t": "pad",
+          "x": 13,
+          "y": 4,
+          "w": 1.2,
+          "h": 1.2,
+          "net": "N1"
+        },
+        {
+          "t": "track",
+          "pts": [
+            [
+              3,
+              4
+            ],
+            [
+              13,
+              4
+            ]
+          ],
+          "w": 0.25,
+          "layer": "F",
+          "net": "N1"
+        }
+      ]
+    }
+  },
+  "enabled": true
+}

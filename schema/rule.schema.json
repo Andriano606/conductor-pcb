@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://partingpro.dev/pcb-rules-library/rule.schema.json",
+  "title": "PCB layout rule",
+  "type": "object",
+  "required": [
+    "code",
+    "title",
+    "category",
+    "severity",
+    "summary",
+    "description",
+    "why",
+    "fix",
+    "params",
+    "checker",
+    "tags",
+    "references",
+    "examples",
+    "enabled"
+  ],
+  "properties": {
+    "code": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+      "description": "Stable id; equals the finding code the checker emits"
+    },
+    "title": {
+      "type": "string"
+    },
+    "category": {
+      "enum": [
+        "power",
+        "ground",
+        "signal",
+        "clock",
+        "manufacturing",
+        "mechanical",
+        "drc"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "error",
+        "warning",
+        "info"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string",
+      "description": "Markdown"
+    },
+    "why": {
+      "type": "string",
+      "description": "Markdown"
+    },
+    "fix": {
+      "type": "string",
+      "description": "Markdown"
+    },
+    "params": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "default"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Field name in pcbagent CheckConfig"
+          },
+          "label": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "number",
+              "string",
+              "boolean"
+            ]
+          },
+          "default": {},
+          "min": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "step": {
+            "type": "number"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "checker": {
+      "type": "object",
+      "required": [
+        "engine"
+      ],
+      "properties": {
+        "engine": {
+          "enum": [
+            "pcbagent",
+            "kicad-drc",
+            "manual"
+          ]
+        },
+        "function": {
+          "type": "string"
+        },
+        "measures": {
+          "type": "string"
+        }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "examples": {
+      "type": "object",
+      "required": [
+        "bad",
+        "good"
+      ],
+      "properties": {
+        "bad": {
+          "$ref": "#/$defs/scene"
+        },
+        "good": {
+          "$ref": "#/$defs/scene"
+        }
+      }
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "check": {
+      "type": "object",
+      "required": [
+        "kernel"
+      ],
+      "properties": {
+        "kernel": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "pcbagent Checker.check_<kernel>"
+        },
+        "emits": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+          "description": "internal finding code of the kernel this rule owns (default: the rule code)"
+        },
+        "args": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "number",
+              "string",
+              "boolean"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "scene": {
+      "type": "object",
+      "required": [
+        "w",
+        "h",
+        "verdict",
+        "caption",
+        "items"
+      ],
+      "properties": {
+        "w": {
+          "type": "number"
+        },
+        "h": {
+          "type": "number"
+        },
+        "verdict": {
+          "enum": [
+            "bad",
+            "good"
+          ]
+        },
+        "caption": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "t"
+            ],
+            "properties": {
+              "t": {
+                "enum": [
+                  "board",
+                  "zone",
+                  "part",
+                  "pad",
+                  "track",
+                  "via",
+                  "label",
+                  "dim",
+                  "mark",
+                  "arrow",
+                  "keepout"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

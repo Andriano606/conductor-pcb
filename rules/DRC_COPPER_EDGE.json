@@ -1,0 +1,100 @@
+{
+  "code": "DRC_COPPER_EDGE_CLEARANCE",
+  "title": "Мідь занадто близько до краю плати (KiCad DRC)",
+  "category": "drc",
+  "severity": "error",
+  "summary": "Траса, площадка чи зона ближче до Edge.Cuts, ніж min_copper_edge_clearance.",
+  "description": "Вбудована перевірка KiCad `copper_edge_clearance`. Поріг береться з правил проекту (типово 0.5 мм для фрезерування, 0.3 мм для V-cut за домовленістю з виробником).",
+  "why": "Фреза йде по контуру з допуском 0.1–0.2 мм. Мідь на краю оголюється, окислюється й може замкнути на корпус.",
+  "fix": "Відсуньте мідь від краю. Для зон встановіть відступ від краю в налаштуваннях зони.",
+  "params": [],
+  "checker": {
+    "engine": "kicad-drc",
+    "function": "copper_edge_clearance",
+    "measures": "відстань від міді до Edge.Cuts"
+  },
+  "check": {
+    "kernel": "kicad_drc",
+    "emits": "DRC_COPPER_EDGE_CLEARANCE",
+    "args": {}
+  },
+  "tags": [
+    "DRC",
+    "край плати"
+  ],
+  "references": [],
+  "examples": {
+    "bad": {
+      "w": 16,
+      "h": 8,
+      "verdict": "bad",
+      "caption": "Траса за 0.1 мм від краю.",
+      "items": [
+        {
+          "t": "board",
+          "x": 0,
+          "y": 0,
+          "w": 16,
+          "h": 8
+        },
+        {
+          "t": "track",
+          "pts": [
+            [
+              2,
+              0.25
+            ],
+            [
+              14,
+              0.25
+            ]
+          ],
+          "w": 0.25,
+          "layer": "F",
+          "net": "SIG",
+          "bad": true
+        }
+      ]
+    },
+    "good": {
+      "w": 16,
+      "h": 8,
+      "verdict": "good",
+      "caption": "Відступ 0.6 мм.",
+      "items": [
+        {
+          "t": "board",
+          "x": 0,
+          "y": 0,
+          "w": 16,
+          "h": 8
+        },
+        {
+          "t": "track",
+          "pts": [
+            [
+              2,
+              0.9
+            ],
+            [
+              14,
+              0.9
+            ]
+          ],
+          "w": 0.25,
+          "layer": "F",
+          "net": "SIG"
+        },
+        {
+          "t": "dim",
+          "x1": 8,
+          "y1": 0,
+          "x2": 8,
+          "y2": 0.78,
+          "text": ""
+        }
+      ]
+    }
+  },
+  "enabled": true
+}

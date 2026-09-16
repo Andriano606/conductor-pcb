@@ -1,0 +1,20 @@
+appId: dev.partingpro.conductor-pcb
+productName: Conductor PCB
+directories:
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  - from: rules
+    to: rules
+    filter:
+      - '**/*.json'
+  - from: schema
+    to: schema
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Development
+  icon: build/icon.png

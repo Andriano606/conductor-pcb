@@ -1,0 +1,234 @@
+{
+  "code": "CRYSTAL_VIAS",
+  "title": "Переходи на трасах кварцу",
+  "category": "clock",
+  "severity": "warning",
+  "summary": "Ланцюги кварцу мають лишатися на одному шарі, без перехідних отворів.",
+  "description": "Для кожного ланцюга, підключеного до кварцу, перевіряч рахує перехідні отвори. Більше за `crystal_max_vias` (типово 0) — попередження зі списком переходів.",
+  "why": "Перехід виводить трасу на інший шар, де під нею вже немає суцільної землі, і додає паразитну індуктивність. Для контуру з ємністю 10–20 pF це помітно зсуває частоту й погіршує запас підсилення генератора.",
+  "fix": "Перерозведіть OSC_IN/OSC_OUT на шарі компонентів. Якщо кварц не вміщується на тому ж шарі, пересуньте інші компоненти, а не трасу.",
+  "params": [
+    {
+      "key": "crystal_max_vias",
+      "label": "Макс. переходів на ланцюг кварцу",
+      "type": "number",
+      "default": 0,
+      "min": 0,
+      "max": 4,
+      "step": 1
+    }
+  ],
+  "checker": {
+    "engine": "pcbagent",
+    "function": "check_crystal",
+    "measures": "кількість перехідних отворів на ланцюгах кварцу"
+  },
+  "check": {
+    "kernel": "crystal",
+    "emits": "CRYSTAL_VIAS",
+    "args": {}
+  },
+  "tags": [
+    "кварц",
+    "перехідні отвори",
+    "тактування"
+  ],
+  "references": [
+    {
+      "title": "ST AN2867: Oscillator design guide for STM8AF/AL/S, STM32 MCUs and MPUs",
+      "url": "https://www.st.com/resource/en/application_note/an2867-oscillator-design-guide-for-stm8afals-stm32-mcus-and-mpus-stmicroelectronics.pdf"
+    }
+  ],
+  "examples": {
+    "bad": {
+      "w": 22,
+      "h": 12,
+      "verdict": "bad",
+      "caption": "OSC_IN пірнає на B.Cu через два переходи.",
+      "items": [
+        {
+          "t": "board",
+          "x": 0,
+          "y": 0,
+          "w": 22,
+          "h": 12
+        },
+        {
+          "t": "zone",
+          "x": 0.5,
+          "y": 0.5,
+          "w": 21,
+          "h": 11,
+          "layer": "B",
+          "net": "GND"
+        },
+        {
+          "t": "part",
+          "x": 1,
+          "y": 2,
+          "w": 7,
+          "h": 8,
+          "label": "U1",
+          "kind": "ic"
+        },
+        {
+          "t": "pad",
+          "x": 8.6,
+          "y": 5,
+          "w": 1.2,
+          "h": 0.5,
+          "net": "OSC_IN",
+          "label": "OSC_IN"
+        },
+        {
+          "t": "part",
+          "x": 15,
+          "y": 3.8,
+          "w": 3.2,
+          "h": 2.5,
+          "label": "Y1",
+          "kind": "xtal"
+        },
+        {
+          "t": "track",
+          "pts": [
+            [
+              9.2,
+              5
+            ],
+            [
+              10.5,
+              5
+            ]
+          ],
+          "w": 0.2,
+          "layer": "F",
+          "net": "OSC_IN"
+        },
+        {
+          "t": "via",
+          "x": 10.5,
+          "y": 5,
+          "net": "OSC_IN",
+          "bad": true
+        },
+        {
+          "t": "track",
+          "pts": [
+            [
+              10.5,
+              5
+            ],
+            [
+              10.5,
+              8.5
+            ],
+            [
+              14,
+              8.5
+            ]
+          ],
+          "w": 0.2,
+          "layer": "B",
+          "net": "OSC_IN",
+          "bad": true
+        },
+        {
+          "t": "via",
+          "x": 14,
+          "y": 8.5,
+          "net": "OSC_IN",
+          "bad": true
+        },
+        {
+          "t": "track",
+          "pts": [
+            [
+              14,
+              8.5
+            ],
+            [
+              14,
+              5
+            ],
+            [
+              15.3,
+              5
+            ]
+          ],
+          "w": 0.2,
+          "layer": "F",
+          "net": "OSC_IN"
+        }
+      ]
+    },
+    "good": {
+      "w": 22,
+      "h": 12,
+      "verdict": "good",
+      "caption": "Пряма траса на F.Cu без переходів.",
+      "items": [
+        {
+          "t": "board",
+          "x": 0,
+          "y": 0,
+          "w": 22,
+          "h": 12
+        },
+        {
+          "t": "zone",
+          "x": 0.5,
+          "y": 0.5,
+          "w": 21,
+          "h": 11,
+          "layer": "B",
+          "net": "GND"
+        },
+        {
+          "t": "part",
+          "x": 1,
+          "y": 2,
+          "w": 7,
+          "h": 8,
+          "label": "U1",
+          "kind": "ic"
+        },
+        {
+          "t": "pad",
+          "x": 8.6,
+          "y": 5,
+          "w": 1.2,
+          "h": 0.5,
+          "net": "OSC_IN",
+          "label": "OSC_IN"
+        },
+        {
+          "t": "part",
+          "x": 11,
+          "y": 3.8,
+          "w": 3.2,
+          "h": 2.5,
+          "label": "Y1",
+          "kind": "xtal"
+        },
+        {
+          "t": "track",
+          "pts": [
+            [
+              9.2,
+              5
+            ],
+            [
+              11.3,
+              5
+            ]
+          ],
+          "w": 0.2,
+          "layer": "F",
+          "net": "OSC_IN"
+        }
+      ]
+    }
+  },
+  "enabled": true
+}
