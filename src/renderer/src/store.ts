@@ -269,8 +269,9 @@ export const useStore = create<State>((set, get) => ({
       const config = await window.api.getConfig()
       set({ config, projects: config.projects })
     } else {
+      // the main process re-prunes project overrides against the new global values
       const config = await window.api.setConfig({ overrides: { [code]: ov } })
-      set({ config })
+      set({ config, projects: config.projects ?? get().projects })
     }
     await get().refreshRules()
   },

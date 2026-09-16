@@ -7,7 +7,7 @@ import { addClaudeProfile, addCustomPrompt, getConfig, getConfigPath, removeClau
 import { deleteUserRule, getRules, reloadRules, saveUserRule, snapshot, startWatching } from './rulesRepo'
 import { apiStatus, getLastReport, setLastReport, startApi } from './api'
 import type { ChatAnswer, PcbProject } from '../shared/types'
-import { addProjectFromDir, closeChatSession, createChatSession, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, renameChatSession, runCheck, setProjectProfiles, setProjectRuleOverride, startSessionChat, updateProject } from './projects'
+import { addProjectFromDir, closeChatSession, createChatSession, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, renameChatSession, reconcileProjectOverrides, runCheck, setProjectProfiles, setProjectRuleOverride, startSessionChat, updateProject } from './projects'
 import { isClaudeConfigDir } from './configMerge'
 import { pollUsage, refreshUsageSoon } from './usagePoller'
 import { answerChat, attachChat, interruptChat, sendChatMessage, setChatParams } from './claudeChat'
@@ -30,7 +30,8 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle('config:get', () => getConfig())
   ipcMain.handle('config:set', async (_e, patch: Partial<AppConfig>) => {
     const before = getConfig()
-    const next = setConfig(patch)
+    let next = setConfig(patch)
+    if (patch.overrides && reconcileProjectOverrides()) next = getConfig()
     if (patch.userRulesDir && patch.userRulesDir !== before.userRulesDir) {
       startWatching()
       reloadRules()

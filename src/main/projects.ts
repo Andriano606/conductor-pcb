@@ -48,6 +48,30 @@ export function setProjectRuleOverride(projectId: string, code: string, ov: Rule
   setConfig({ projects })
 }
 
+/**
+ * Re-prune every project's overrides against the current global effective values. Called after
+ * the global overrides change (settings window, HTTP API) or the rule files reload, so a project
+ * value that now equals the global one stops counting as "changed" and its ↺ goes dim.
+ * Returns true when something was dropped.
+ */
+export function reconcileProjectOverrides(): boolean {
+  const cfg = getConfig()
+  let changed = false
+  const projects = cfg.projects.map((p) => {
+    if (!p.ruleOverrides || !Object.keys(p.ruleOverrides).length) return p
+    const next: Record<string, RuleOverride> = {}
+    for (const [code, ov] of Object.entries(p.ruleOverrides)) {
+      const global = getRule(code)
+      const pruned = global ? pruneOverride(ov, global.effective) : ov
+      if (pruned) next[code] = pruned
+      if (JSON.stringify(pruned) !== JSON.stringify(ov)) changed = true
+    }
+    return { ...p, ruleOverrides: next }
+  })
+  if (changed) setConfig({ projects })
+  return changed
+}
+
 export function updateProject(id: string, patch: Partial<PcbProject>): PcbProject | undefined {
   const projects = getConfig().projects.map((p) => (p.id === id ? { ...p, ...patch, id } : p))
   setConfig({ projects })

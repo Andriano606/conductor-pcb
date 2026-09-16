@@ -19,7 +19,7 @@ import { sampleRule } from '../helpers/sample'
 import { initStore, setConfig } from '../../src/main/store'
 import { deleteProjectRules, deleteUserRule, getRules, projectRulesDir, reloadRules, saveUserRule, setProjectRulesRoot, snapshot } from '../../src/main/rulesRepo'
 import { handle } from '../../src/main/api'
-import { setProjectRuleOverride } from '../../src/main/projects'
+import { reconcileProjectOverrides, setProjectRuleOverride } from '../../src/main/projects'
 import type { IncomingMessage, ServerResponse } from 'http'
 
 mkdirSync(join(tmp, 'rules'), { recursive: true })
@@ -85,6 +85,19 @@ describe('project-scoped rules', () => {
     setProjectRuleOverride('p2', 'A_RULE', { params: { thr: 7 } })
     expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ params: { thr: 7 } })
     setProjectRuleOverride('p2', 'A_RULE', null)
+    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toBeUndefined()
+  })
+  it('changing the global values re-prunes the project overrides', () => {
+    setConfig({ overrides: { A_RULE: { enabled: false, params: { thr: 3 } } } })
+    setProjectRuleOverride('p2', 'A_RULE', { enabled: true, params: { thr: 5 } })
+    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ enabled: true, params: { thr: 5 } })
+    // the global default now matches the project's enabled flag → only the threshold stays overridden
+    setConfig({ overrides: { A_RULE: { enabled: true } } })
+    expect(reconcileProjectOverrides()).toBe(true)
+    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ params: { thr: 5 } })
+    expect(reconcileProjectOverrides()).toBe(false) // nothing more to drop
+    setConfig({ overrides: { A_RULE: { params: { thr: 5 } } } })
+    expect(reconcileProjectOverrides()).toBe(true)
     expect(getConfigProject('p2').ruleOverrides?.A_RULE).toBeUndefined()
   })
   it('the HTTP API saves and deletes project rules with ?project=', async () => {
