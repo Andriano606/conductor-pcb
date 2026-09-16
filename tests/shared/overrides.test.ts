@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyOverrides, mergeOverride, overrideIsEmpty, pruneOverride, validateRule, withProjectOverride } from '@shared/rules'
+import { applyOverride, applyOverrides, effectiveDiffers, mergeOverride, overrideIsEmpty, rulesDifferingFromGlobal, snapshotOverrides, validateRule, withProjectOverride } from '@shared/rules'
 import { sampleRule } from '../helpers/sample'
 import type { PcbProject } from '@shared/types'
 
@@ -31,12 +31,17 @@ describe('validateRule check block', () => {
     expect(overrideIsEmpty({ enabled: false })).toBe(false)
     expect(overrideIsEmpty({ params: { thr: 1 } })).toBe(false)
   })
-  it('pruneOverride keeps only what differs from the base values', () => {
-    const base = { enabled: true, severity: 'warning' as const, params: { thr: 3 } }
-    expect(pruneOverride({ enabled: true, severity: 'warning', params: { thr: 3 } }, base)).toBeNull()
-    expect(pruneOverride({ enabled: false, params: { thr: 3 } }, base)).toEqual({ enabled: false })
-    expect(pruneOverride({ params: { thr: 5 } }, base)).toEqual({ params: { thr: 5 } })
-    expect(pruneOverride(undefined, base)).toBeNull()
+  it('snapshotOverrides pins every effective value; effectiveDiffers / rulesDifferingFromGlobal compare states', () => {
+    const r = sampleRule({ code: 'R1' })
+    const g = applyOverride(r, { enabled: false, params: { thr: 4 } })
+    expect(snapshotOverrides([g])).toEqual({ R1: { enabled: false, severity: 'warning', params: { thr: 4 } } })
+    // a pinned copy reproduces the same effective state even when the global override changes later
+    const pinned = applyOverrides([r], {}, snapshotOverrides([g]))[0]
+    expect(effectiveDiffers(pinned.effective, g.effective)).toBe(false)
+    expect(effectiveDiffers(pinned.effective, applyOverride(r, undefined).effective)).toBe(true)
+    const projectOnly = applyOverride(sampleRule({ code: 'ONLY_P' }), undefined)
+    expect(rulesDifferingFromGlobal([pinned, projectOnly], [g])).toEqual([])
+    expect(rulesDifferingFromGlobal([pinned, projectOnly], [applyOverride(r, { severity: 'info' })])).toEqual(['R1'])
   })
   it('requires check.kernel for pcbagent rules and validates its shape', () => {
     const noCheck = { ...sampleRule(), check: undefined }

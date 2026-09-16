@@ -19,7 +19,7 @@ import { sampleRule } from '../helpers/sample'
 import { initStore, setConfig } from '../../src/main/store'
 import { deleteProjectRules, deleteUserRule, getRules, projectRulesDir, reloadRules, saveUserRule, setProjectRulesRoot, snapshot } from '../../src/main/rulesRepo'
 import { handle } from '../../src/main/api'
-import { reconcileProjectOverrides, resetProjectOverrides, setProjectRuleOverride } from '../../src/main/projects'
+import { applyGlobalRulesToProject, pinUnpinnedProjects, setProjectRuleOverride } from '../../src/main/projects'
 import type { IncomingMessage, ServerResponse } from 'http'
 
 mkdirSync(join(tmp, 'rules'), { recursive: true })
@@ -74,35 +74,26 @@ describe('project-scoped rules', () => {
     expect(getRules('p2').find((r) => r.code === 'A_RULE')?.effective.enabled).toBe(false)
     expect(getRules().find((r) => r.code === 'A_RULE')?.effective.enabled).toBe(false)
   })
-  it('a project override flipped back to the global value disappears', () => {
-    setConfig({ overrides: { A_RULE: { enabled: false } } })
+  it('pinning copies the global values into the project, so later global changes do not leak in', () => {
+    setConfig({ overrides: { A_RULE: { enabled: false, params: { thr: 4 } } } })
+    expect(pinUnpinnedProjects()).toBe(2)
+    expect(pinUnpinnedProjects()).toBe(0)
+    expect(getConfigProject('p2').rulesPinned).toBe(true)
+    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ enabled: false, severity: 'warning', params: { thr: 4 } })
+    setConfig({ overrides: { A_RULE: { enabled: true, params: { thr: 9 } } } })
+    expect(getRules().find((r) => r.code === 'A_RULE')?.effective).toMatchObject({ enabled: true, params: { thr: 9 } })
+    expect(getRules('p2').find((r) => r.code === 'A_RULE')?.effective).toMatchObject({ enabled: false, params: { thr: 4 } })
+    // the project edits its own copy; a value flipped back by hand simply equals the global one again
     setProjectRuleOverride('p2', 'A_RULE', { enabled: true })
-    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ enabled: true })
-    setProjectRuleOverride('p2', 'A_RULE', { params: { thr: 3 } }) // equals the default → not kept
-    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ enabled: true })
-    setProjectRuleOverride('p2', 'A_RULE', { enabled: false }) // back to the global value → gone
-    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toBeUndefined()
-    setProjectRuleOverride('p2', 'A_RULE', { params: { thr: 7 } })
-    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ params: { thr: 7 } })
-    setProjectRuleOverride('p2', 'A_RULE', null)
-    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toBeUndefined()
-    setProjectRuleOverride('p2', 'A_RULE', { params: { thr: 9 } })
-    setProjectRuleOverride('p2', 'ONLY_P1', { enabled: false })
-    resetProjectOverrides('p2')
-    expect(getConfigProject('p2').ruleOverrides).toEqual({})
-  })
-  it('changing the global values re-prunes the project overrides', () => {
-    setConfig({ overrides: { A_RULE: { enabled: false, params: { thr: 3 } } } })
-    setProjectRuleOverride('p2', 'A_RULE', { enabled: true, params: { thr: 5 } })
-    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ enabled: true, params: { thr: 5 } })
-    // the global default now matches the project's enabled flag → only the threshold stays overridden
-    setConfig({ overrides: { A_RULE: { enabled: true } } })
-    expect(reconcileProjectOverrides()).toBe(true)
-    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ params: { thr: 5 } })
-    expect(reconcileProjectOverrides()).toBe(false) // nothing more to drop
-    setConfig({ overrides: { A_RULE: { params: { thr: 5 } } } })
-    expect(reconcileProjectOverrides()).toBe(true)
-    expect(getConfigProject('p2').ruleOverrides?.A_RULE).toBeUndefined()
+    expect(getRules('p2').find((r) => r.code === 'A_RULE')?.effective).toMatchObject({ enabled: true, params: { thr: 4 } })
+    // ↺ applies the current globals (and keeps project-only rules at their file defaults)
+    saveUserRule(sampleRule({ code: 'P2_OWN' }), 'p2')
+    setProjectRuleOverride('p2', 'P2_OWN', { enabled: false })
+    applyGlobalRulesToProject('p2')
+    expect(getRules('p2').find((r) => r.code === 'A_RULE')?.effective).toMatchObject({ enabled: true, params: { thr: 9 } })
+    expect(getRules('p2').find((r) => r.code === 'P2_OWN')?.effective.enabled).toBe(true)
+    expect(getConfigProject('p2').ruleOverrides?.P2_OWN).toEqual({ enabled: true, severity: 'warning', params: { thr: 3 } })
+    setConfig({ overrides: {} })
   })
   it('the HTTP API saves and deletes project rules with ?project=', async () => {
     const put = await req('PUT', '/api/rules/VIA_API?project=p2', sampleRule({ code: 'VIA_API' }))

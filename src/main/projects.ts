@@ -5,9 +5,9 @@ import { spawn } from 'child_process'
 import { join } from 'path'
 import type { ChatSession, CheckResult, FindingsReport, PcbProject, KicadStatus, RuleOverride } from '../shared/types'
 import { addSession, findSession, projectFromFiles, removeProject, removeSession, renameSession, updateSession, upsertProject } from '../shared/projects'
-import { pruneOverride, withProjectOverride } from '../shared/rules'
+import { snapshotOverrides, withProjectOverride } from '../shared/rules'
 import { getConfig, setConfig } from './store'
-import { bundledRulesDir, deleteProjectRules, getRule } from './rulesRepo'
+import { bundledRulesDir, deleteProjectRules, getRules } from './rulesRepo'
 import { buildMergedConfig } from './configMerge'
 import type { ClaudeProfile } from '../shared/types'
 import { buildEnv } from './env'
@@ -20,7 +20,8 @@ export function addProjectFromDir(dir: string): PcbProject | null {
   if (!p) return null
   const projects = upsertProject(getConfig().projects, p)
   setConfig({ projects, activeProjectId: projects.find((x) => x.dir === dir)?.id })
-  return projects.find((x) => x.dir === dir) ?? null
+  pinUnpinnedProjects() // a new project starts with a copy of the current global rule values
+  return getConfig().projects.find((x) => x.dir === dir) ?? null
 }
 
 export function deleteProject(id: string): void {
@@ -31,50 +32,36 @@ export function deleteProject(id: string): void {
   setConfig({ projects, activeProjectId: cfg.activeProjectId === id ? projects[0]?.id : cfg.activeProjectId })
 }
 
-/**
- * Merge `ov` into a project's override for `code` (null removes it), then keep only what
- * differs from the global effective values, so the override disappears once the user flips
- * everything back by hand.
- */
+/** Merge `ov` into a project's override for `code` (null removes it). */
 export function setProjectRuleOverride(projectId: string, code: string, ov: RuleOverride | null): void {
-  let projects = withProjectOverride(getConfig().projects, projectId, code, ov)
-  const global = getRule(code)
-  if (ov !== null && global) {
-    const merged = projects.find((p) => p.id === projectId)?.ruleOverrides?.[code]
-    projects = withProjectOverride(projects, projectId, code, null)
-    const pruned = pruneOverride(merged, global.effective)
-    if (pruned) projects = withProjectOverride(projects, projectId, code, pruned)
-  }
-  setConfig({ projects })
-}
-
-/** Drop every rule override of a project: it goes back to the global values for all rules. */
-export function resetProjectOverrides(projectId: string): void {
-  setConfig({ projects: getConfig().projects.map((p) => (p.id === projectId ? { ...p, ruleOverrides: {} } : p)) })
+  setConfig({ projects: withProjectOverride(getConfig().projects, projectId, code, ov) })
 }
 
 /**
- * Re-prune every project's overrides against the current global effective values. Called after
- * the global overrides change (settings window, HTTP API) or the rule files reload, so a project
- * value that now equals the global one stops counting as "changed" and its ↺ goes dim.
- * Returns true when something was dropped.
+ * Apply the current global values to a project (↺ in the «Правила» tab): its overrides become a
+ * full copy of the global effective state, plus the file defaults of its own project-only rules.
  */
-export function reconcileProjectOverrides(): boolean {
-  const cfg = getConfig()
-  let changed = false
-  const projects = cfg.projects.map((p) => {
-    if (!p.ruleOverrides || !Object.keys(p.ruleOverrides).length) return p
-    const next: Record<string, RuleOverride> = {}
-    for (const [code, ov] of Object.entries(p.ruleOverrides)) {
-      const global = getRule(code)
-      const pruned = global ? pruneOverride(ov, global.effective) : ov
-      if (pruned) next[code] = pruned
-      if (JSON.stringify(pruned) !== JSON.stringify(ov)) changed = true
-    }
-    return { ...p, ruleOverrides: next }
-  })
-  if (changed) setConfig({ projects })
-  return changed
+export function applyGlobalRulesToProject(projectId: string): void {
+  const cleared = getConfig().projects.map((p) => (p.id === projectId ? { ...p, ruleOverrides: {} } : p))
+  setConfig({ projects: cleared })
+  const snapshot = snapshotOverrides(getRules(projectId))
+  setConfig({ projects: getConfig().projects.map((p) => (p.id === projectId ? { ...p, ruleOverrides: snapshot, rulesPinned: true } : p)) })
+}
+
+/**
+ * Pin the rule state of projects that are not pinned yet: their current effective values
+ * (global + whatever partial overrides they had) become a full copy, so global changes stop
+ * leaking into them. Runs once at startup (migration) and for every new project.
+ */
+export function pinUnpinnedProjects(): number {
+  let n = 0
+  for (const p of getConfig().projects) {
+    if (p.rulesPinned) continue
+    const snapshot = snapshotOverrides(getRules(p.id))
+    setConfig({ projects: getConfig().projects.map((x) => (x.id === p.id ? { ...x, ruleOverrides: snapshot, rulesPinned: true } : x)) })
+    n++
+  }
+  return n
 }
 
 export function updateProject(id: string, patch: Partial<PcbProject>): PcbProject | undefined {

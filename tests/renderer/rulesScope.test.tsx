@@ -96,12 +96,14 @@ describe('rules scope', () => {
     const api = mockApi()
     render(<RuleSidebar rules={useStore.getState().rules} />)
     expect(screen.getByText('board')).toBeInTheDocument()
-    // ↺ next to import drops every override of the project (after a confirm), enabled only when there are some
-    const resetBtn = (): HTMLElement => screen.getByLabelText('Скинути всі правила проекту до глобальних')
-    expect(resetBtn()).toBeDisabled()
-    useStore.setState({ projects: [{ ...p1, ruleOverrides: { A_RULE: { enabled: false }, B_RULE: { params: {} } } }] })
+    // ↺ next to import applies the globals to the project (after a confirm), enabled only while values differ
+    const resetBtn = (): HTMLElement => screen.getByLabelText('Застосувати глобальні правила до проекту')
+    expect(resetBtn()).toBeEnabled() // A_RULE: project enabled=true vs global enabled=false (see beforeEach)
+    expect(resetBtn().title).toContain('відрізняється: 1')
+    useStore.setState({ rules: [applyOverride(ruleA, { enabled: false }), applyOverride(ruleB, undefined)] })
+    await vi.waitFor(() => expect(resetBtn()).toBeDisabled())
+    useStore.setState({ rules: [applyOverride(ruleA, { enabled: true }), applyOverride(ruleB, undefined)] })
     await vi.waitFor(() => expect(resetBtn()).toBeEnabled())
-    expect(resetBtn().title).toContain('змінено: 1')
     fireEvent.click(resetBtn())
     await vi.waitFor(() => expect(useStore.getState().confirm).not.toBeNull())
     useStore.getState().resolveConfirm(true)
@@ -157,13 +159,13 @@ describe('rules scope', () => {
   })
   it('the rule card shows inheritance, resets a project override and deletes project rules', async () => {
     const api = mockApi()
-    const { rerender } = render(<RuleView rule={applyOverride(ruleA, undefined)} />)
+    // global A_RULE is disabled (beforeEach); the project card compares its values with that
+    const { rerender } = render(<RuleView rule={applyOverride(ruleA, { enabled: false })} />)
     expect(screen.getByText('як у глобальних')).toBeInTheDocument()
     expect(screen.queryByRole('switch')).not.toBeInTheDocument() // enabling lives in the sidebar now
     expect(screen.queryByText('Скинути до типових')).not.toBeInTheDocument() // the ↺ icon lives next to import
-    useStore.setState({ projects: [{ ...p1, ruleOverrides: { A_RULE: { enabled: false } } }] })
-    rerender(<RuleView rule={applyOverride(ruleA, { enabled: false })} />)
-    expect(await screen.findByText('змінено для board')).toBeInTheDocument()
+    rerender(<RuleView rule={applyOverride(ruleA, { enabled: true })} />)
+    expect(await screen.findByText('відрізняється від глобальних')).toBeInTheDocument()
     rerender(<RuleView rule={applyOverride({ ...ruleA, source: 'project', file: '/pr/p1/A_RULE.json' }, undefined)} />)
     expect(screen.getByText('лише цей проект')).toBeInTheDocument()
     fireEvent.click(screen.getByText('видалити правило'))

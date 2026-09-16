@@ -1,25 +1,27 @@
 import React from 'react'
-import { overrideIsEmpty } from '@shared/rules'
+import { rulesDifferingFromGlobal } from '@shared/rules'
 import { useStore } from '../store'
 
 /**
- * ↺ next to the import button of the project rules sidebar: drops every override of the
- * project (`scope` = project id) so all toggles, levels and thresholds go back to the global
- * values. Disabled when the project overrides nothing; asks for confirmation first.
+ * ↺ next to the import button of the project rules sidebar: applies the current global rule
+ * values to the project (`scope` = project id), replacing all its toggles, levels and
+ * thresholds. Enabled only while the project's values differ from the globals somewhere.
  */
 export function ResetRuleButton({ scope }: { scope: string }): JSX.Element | null {
   const projects = useStore((s) => s.projects)
+  const rules = useStore((s) => s.rules)
+  const globalRules = useStore((s) => s.globalRules)
   const resetProjectOverrides = useStore((s) => s.resetProjectOverrides)
   const askConfirm = useStore((s) => s.askConfirm)
   const project = projects.find((p) => p.id === scope) ?? null
   if (!project) return null
-  const changed = Object.values(project.ruleOverrides ?? {}).filter((ov) => !overrideIsEmpty(ov)).length
+  const changed = rulesDifferingFromGlobal(rules, globalRules).length
   const reset = async (): Promise<void> => {
-    if (await askConfirm(`Скинути всі правила проекту ${project.name} до глобальних? Зміни ${changed} правил (увімкненість, рівні, пороги) буде прибрано.`)) await resetProjectOverrides(project.id)
+    if (await askConfirm(`Застосувати глобальні правила до проекту ${project.name}? Власні значення ${changed} правил (увімкненість, рівні, пороги) буде замінено глобальними.`)) await resetProjectOverrides(project.id)
   }
   return (
-    <button className="icon-btn danger" disabled={!changed} aria-label="Скинути всі правила проекту до глобальних"
-      title={changed ? `Скинути всі правила проекту до глобальних (змінено: ${changed})` : 'У проекті нічого не змінено відносно глобальних правил'}
+    <button className="icon-btn danger" disabled={!changed} aria-label="Застосувати глобальні правила до проекту"
+      title={changed ? `Застосувати глобальні правила до проекту (відрізняється: ${changed})` : 'Правила проекту збігаються з глобальними'}
       onClick={() => void reset()}>
       <ResetIcon />
     </button>

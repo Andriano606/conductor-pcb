@@ -269,8 +269,15 @@ export interface PcbProject {
   claudeSessionId?: string
   /** Last checker run summary, shown in the sidebar. */
   lastCheck?: { generated: string; summary: Record<Severity, number> }
-  /** Per-project rule overrides, applied on top of the global ones. */
+  /**
+   * The project's own rule state (enabled/severity/params per rule), applied on top of the
+   * global values. Filled with a full copy of the global values when the project is created
+   * (`rulesPinned`), so later global changes do not touch the project until the user applies
+   * them with ↺ in the «Правила» tab. Rules that appear later inherit the global values.
+   */
   ruleOverrides?: Record<string, RuleOverride>
+  /** True once ruleOverrides holds that full copy (set on creation / one-off migration). */
+  rulesPinned?: boolean
   /** @deprecated pre-tabs fields, migrated into sessions[0] on load. */
   claudeModel?: string
   claudeEffort?: string

@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { EffectiveRule, Severity } from '@shared/types'
-import { overrideIsEmpty } from '@shared/rules'
+import { effectiveDiffers } from '@shared/rules'
 import { CATEGORIES, SEVERITY_LABEL } from '@shared/types'
 import { useStore } from '../store'
 import { BoardDiagram } from './BoardDiagram'
@@ -27,8 +27,10 @@ export function RuleView({ rule, scope }: { rule: EffectiveRule; scope?: string 
   const [showJson, setShowJson] = useState(false)
   const hits = report?.findings.filter((f) => f.code === rule.code) ?? []
   const scopeProject = ruleScope === 'global' ? null : projects.find((p) => p.id === ruleScope)
-  const projectOverride = scopeProject?.ruleOverrides?.[rule.code]
-  const hasProjectOverride = !overrideIsEmpty(projectOverride)
+  const globalRules = useStore((s) => s.globalRules)
+  const globalRule = globalRules.find((r) => r.code === rule.code)
+  // "changed" = the project's values differ from the current global ones (a project-only rule has no global counterpart)
+  const hasProjectOverride = !!scopeProject && !!globalRule && effectiveDiffers(rule.effective, globalRule.effective)
   const cat = CATEGORIES.find((c) => c.id === rule.category)?.label ?? rule.category
   const setOverride = (code: string, ov: Parameters<typeof setOverrideStore>[1]): Promise<void> => setOverrideStore(code, ov, ruleScope)
   const deletable = rule.source === 'project' ? (ruleScope !== 'global' ? ruleScope : null) : rule.source === 'user' ? 'global' : null
@@ -49,8 +51,8 @@ export function RuleView({ rule, scope }: { rule: EffectiveRule; scope?: string 
             {rule.source === 'user' && <span className="src-badge">користувацьке</span>}
             {rule.source === 'project' && <span className="src-badge project">лише цей проект</span>}
             {scopeProject && (
-              <span className={'scope-badge' + (hasProjectOverride ? ' changed' : '')} title={hasProjectOverride ? 'Це правило змінено для проекту; в інших проектах діють глобальні значення' : 'Правило успадковує глобальні налаштування; зміни тут діятимуть лише для цього проекту'}>
-                {hasProjectOverride ? `змінено для ${scopeProject.name}` : 'як у глобальних'}
+              <span className={'scope-badge' + (hasProjectOverride ? ' changed' : '')} title={hasProjectOverride ? 'Значення цього правила в проекті відрізняються від глобальних; ↺ на панелі застосує глобальні' : 'Значення збігаються з глобальними; зміни тут діятимуть лише для цього проекту'}>
+                {hasProjectOverride ? 'відрізняється від глобальних' : 'як у глобальних'}
               </span>
             )}
           </div>

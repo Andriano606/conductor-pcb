@@ -106,20 +106,28 @@ export function overrideIsEmpty(ov: RuleOverride | undefined | null): boolean {
   return !Object.keys(ov).some((k) => (k === 'params' ? Object.keys(ov.params ?? {}).length > 0 : (ov as Record<string, unknown>)[k] !== undefined))
 }
 
+/** Every rule's effective state as a full override map (what a project pins when created / on ↺). */
+export function snapshotOverrides(rules: EffectiveRule[]): Record<string, RuleOverride> {
+  const out: Record<string, RuleOverride> = {}
+  for (const r of rules) out[r.code] = { enabled: r.effective.enabled, severity: r.effective.severity, params: { ...r.effective.params } }
+  return out
+}
+
+/** True when two effective states differ in enabled, severity or any param. */
+export function effectiveDiffers(a: EffectiveRule['effective'], b: EffectiveRule['effective']): boolean {
+  if (a.enabled !== b.enabled || a.severity !== b.severity) return true
+  const keys = new Set([...Object.keys(a.params), ...Object.keys(b.params)])
+  for (const k of keys) if (a.params[k] !== b.params[k]) return true
+  return false
+}
+
 /**
- * Drop the parts of an override that equal `base` (the values it sits on top of: the global
- * effective values for a project override). Returns null when nothing is left, so a value
- * flipped back by hand reads as "not overridden" and the reset button goes dim.
+ * Codes of the project-scope rules whose effective state differs from the global library
+ * (rules that exist only in the project are skipped: they have no global counterpart).
  */
-export function pruneOverride(ov: RuleOverride | undefined, base: EffectiveRule['effective']): RuleOverride | null {
-  if (!ov) return null
-  const out: RuleOverride = {}
-  if (ov.enabled !== undefined && ov.enabled !== base.enabled) out.enabled = ov.enabled
-  if (ov.severity !== undefined && ov.severity !== base.severity) out.severity = ov.severity
-  const params: Record<string, number | string | boolean> = {}
-  for (const [k, v] of Object.entries(ov.params ?? {})) if (base.params[k] !== v) params[k] = v
-  if (Object.keys(params).length) out.params = params
-  return overrideIsEmpty(out) ? null : out
+export function rulesDifferingFromGlobal(projectRules: EffectiveRule[], globalRules: EffectiveRule[]): string[] {
+  const global = new Map(globalRules.map((r) => [r.code, r]))
+  return projectRules.filter((r) => { const g = global.get(r.code); return !!g && effectiveDiffers(r.effective, g.effective) }).map((r) => r.code)
 }
 
 /** Project override on top of the global one (params merge key by key). */

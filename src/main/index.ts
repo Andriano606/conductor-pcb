@@ -6,9 +6,9 @@ import { onRulesChanged, reloadRules, snapshot, startWatching, stopWatching } fr
 import { apiStatus, setConfigListener, setReportListener, setScreenshotProvider, startApi, stopApi } from './api'
 import { writeFileSync } from 'fs'
 import { killAllChats, onChatBusy, onChatEvent, onChatParams, onChatSessionId, setChatStorageDir } from './claudeChat'
-import { patchSession, reconcileProjectOverrides } from './projects'
+import { patchSession, pinUnpinnedProjects } from './projects'
 import { onUsage, startUsagePolling, stopUsagePolling } from './usagePoller'
-import { getConfig, setConfig } from './store'
+import { setConfig } from './store'
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -47,6 +47,7 @@ void app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   initStore()
   reloadRules()
+  pinUnpinnedProjects() // one-off migration: projects created before pinning get a copy of the globals
   startWatching()
   setChatStorageDir(join(app.getPath('userData'), 'chats'))
   const win = createWindow()
@@ -66,8 +67,6 @@ void app.whenReady().then(async () => {
   })
   startUsagePolling()
   onRulesChanged(() => {
-    // rule files changed → defaults may have moved; project overrides that now match the globals go away
-    if (reconcileProjectOverrides() && !win.isDestroyed()) win.webContents.send('config:changed', getConfig())
     if (!win.isDestroyed()) win.webContents.send('rules:changed', snapshot())
   })
   setReportListener((report) => {
@@ -84,9 +83,7 @@ void app.whenReady().then(async () => {
     return file
   })
   setConfigListener((cfg) => {
-    // the HTTP API may have patched the global overrides
-    const next = reconcileProjectOverrides() ? getConfig() : cfg
-    if (!win.isDestroyed()) win.webContents.send('config:changed', next)
+    if (!win.isDestroyed()) win.webContents.send('config:changed', cfg)
   })
   const st = await startApi(app.getVersion())
   win.webContents.on('did-finish-load', () => {

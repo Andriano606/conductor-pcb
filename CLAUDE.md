@@ -40,8 +40,11 @@ Guidance for Claude Code when working in this repository follows.
    Two layers of scope, both persisted: **global** = bundled `rules/` + the user rules dir with `AppConfig.overrides`
    (which rules apply to every project by default, edited in the big «Глобальні правила» window opened from
    settings, `GlobalRulesModal`), and **per project** = the «Правила» tab, always scoped to the active project
-   (`store.ruleScope` is derived from `activeProjectId`): it inherits the global values, `PcbProject.ruleOverrides`
-   overrides them for that project only, and rules imported there are written to `<userData>/project-rules/<id>/`
+   (`store.ruleScope` is derived from `activeProjectId`). A project is **pinned**: on creation (and once at startup
+   for older projects, `pinUnpinnedProjects`) `PcbProject.ruleOverrides` gets a full copy of the global effective
+   values, so later global changes never touch it; ↺ in the tab (`applyGlobalRulesToProject`) re-copies the current
+   globals on demand. The card badge / ↺ state compare the project's effective values with the global ones
+   (`rulesDifferingFromGlobal`). Rules imported in the tab are written to `<userData>/project-rules/<id>/`
    (`Rule.source === 'project'`, merged by `rulesRepo.loadedRules(projectId)`). The API takes `?project=<id>` on
    GET/PUT/DELETE. New rules: the `kicad-pcb-rules` Claude config (skill `pcb-rule-author`, in
    `~/Documents/claude-configs`), or «Імпортувати правило» in the app (JSON + preview; `ImportRuleModal` gets its scope).
