@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import type { Rule } from '@shared/types'
-import { validateRule } from '@shared/rules'
+import type { KernelInfo, Rule } from '@shared/types'
+import { kernelWarnings, validateRule } from '@shared/rules'
 import { CATEGORIES, SEVERITY_LABEL } from '@shared/types'
 import { useStore } from '../store'
 import { BoardDiagram } from './BoardDiagram'
@@ -24,6 +24,12 @@ export function ImportRuleModal({ scope }: { scope: string }): JSX.Element {
   const [fileName, setFileName] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveErrors, setSaveErrors] = useState<string[]>([])
+  const [kernels, setKernels] = useState<KernelInfo[] | null>(null)
+  useEffect(() => {
+    let alive = true
+    void window.api.listKernels().then((k) => alive && setKernels(k)).catch(() => alive && setKernels([]))
+    return () => { alive = false }
+  }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -45,6 +51,7 @@ export function ImportRuleModal({ scope }: { scope: string }): JSX.Element {
   }, [text])
 
   const exists = parsed.rule ? rules.find((r) => r.code === parsed.rule!.code) : undefined
+  const warnings = parsed.rule && kernels && kernels.length ? kernelWarnings(parsed.rule, kernels) : []
 
   const pick = async (): Promise<void> => {
     const r = await window.api.pickJsonFile()
@@ -97,8 +104,15 @@ export function ImportRuleModal({ scope }: { scope: string }): JSX.Element {
                 ))}
               </ul>
             )}
+            {warnings.length > 0 && (
+              <ul className="warnings small" aria-label="Попередження щодо ядра">
+                {warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            )}
             <p className="muted small">
-              Формат описано в <code>schema/rule.schema.json</code>; конфіг Claude <code>kicad-pcb-rules</code> (скіл pcb-rule-author) вміє писати такі файли. {scopeProject ? 'Правило збережеться лише для цього проекту і не зʼявиться в інших.' : 'Правило збережеться в папку користувацьких правил і діятиме для всіх проектів.'}
+              Формат описано в <code>schema/rule.schema.json</code>; конфіг Claude <code>kicad-pcb-rules</code> (скіл pcb-rule-author) вміє писати такі файли. Ядро в <code>check.kernel</code>: вбудоване, узагальнене (net_track_length, net_via_count, net_track_width, net_on_layer, component_distance) або <code>file:&lt;шлях&gt;.py:&lt;функція&gt;</code>. {scopeProject ? 'Правило збережеться лише для цього проекту і не зʼявиться в інших.' : 'Правило збережеться в папку користувацьких правил і діятиме для всіх проектів.'}
             </p>
           </section>
           <section className="import-preview">

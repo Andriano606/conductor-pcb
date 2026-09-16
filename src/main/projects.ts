@@ -4,7 +4,7 @@ import { homedir } from 'os'
 import { spawn } from 'child_process'
 import type { ChildProcess } from 'child_process'
 import { join } from 'path'
-import type { BoardCheckResult, ChatSession, CheckProgress, CheckResult, FindingsReport, MultiCheckResult, PcbProject, KicadStatus, RuleOverride, Severity } from '../shared/types'
+import type { BoardCheckResult, ChatSession, CheckProgress, CheckResult, FindingsReport, KernelInfo, MultiCheckResult, PcbProject, KicadStatus, RuleOverride, Severity } from '../shared/types'
 import { addSession, findSession, isBoardFile, isSkippedDir, projectFromFiles, removeProject, removeSession, renameSession, reportStemFor, updateSession, upsertProject } from '../shared/projects'
 import { snapshotOverrides, withProjectOverride } from '../shared/rules'
 import { getConfig, setConfig } from './store'
@@ -312,6 +312,29 @@ function basename(f: string): string {
 function checkerEnv(p: PcbProject): NodeJS.ProcessEnv {
   const cfg = getConfig()
   return buildEnv({ KICAD_CLI: cfg.kicadCli, PCB_RULES_URL: `http://${cfg.api.host}:${cfg.api.port}`, PYTHONPATH: cfg.pcbagentDir, PCB_PROJECT_ID: p.id, PCB_RULES_DIR: bundledRulesDir() })
+}
+
+let kernelsCache: { at: number; list: KernelInfo[] } | null = null
+
+/** Kernels the checker knows (`pcbagent.cli kernels --json`), cached for a minute; [] when the checker is unreachable. */
+export function listKernels(force = false): Promise<KernelInfo[]> {
+  if (!force && kernelsCache && Date.now() - kernelsCache.at < 60_000) return Promise.resolve(kernelsCache.list)
+  const cfg = getConfig()
+  return new Promise((resolve) => {
+    const ps = spawn(cfg.pythonPath, ['-m', 'pcbagent.cli', 'kernels', '--json'], { cwd: cfg.pcbagentDir, env: buildEnv({ PYTHONPATH: cfg.pcbagentDir }) })
+    let out = ''
+    ps.stdout.on('data', (d) => (out += d.toString()))
+    ps.on('error', () => resolve([]))
+    ps.on('exit', () => {
+      try {
+        const list = (JSON.parse(out.trim().split('\n').pop() ?? '{}') as { kernels?: KernelInfo[] }).kernels ?? []
+        kernelsCache = { at: Date.now(), list }
+        resolve(list)
+      } catch {
+        resolve([])
+      }
+    })
+  })
 }
 
 /** Boards currently open in the KiCad the API reaches (`pcbagent.cli docs --json`), [] when none/unreachable. */

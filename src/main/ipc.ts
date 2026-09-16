@@ -7,7 +7,7 @@ import { addClaudeProfile, addCustomPrompt, getConfig, getConfigPath, removeClau
 import { deleteUserRule, getRules, reloadRules, saveUserRule, snapshot, startWatching } from './rulesRepo'
 import { apiStatus, getLastReport, setLastReport, startApi } from './api'
 import type { ChatAnswer, PcbProject } from '../shared/types'
-import { addProjectFromDir, closeChatSession, createChatSession, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, renameChatSession, applyGlobalRulesToProject, refreshBoards, runChecks, setProjectProfiles, setProjectRuleOverride, startSessionChat, updateProject } from './projects'
+import { addProjectFromDir, closeChatSession, createChatSession, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, renameChatSession, applyGlobalRulesToProject, listKernels, refreshBoards, runChecks, setProjectProfiles, setProjectRuleOverride, startSessionChat, updateProject } from './projects'
 import { isClaudeConfigDir } from './configMerge'
 import { pollUsage, refreshUsageSoon } from './usagePoller'
 import { answerChat, attachChat, interruptChat, sendChatMessage, setChatParams } from './claudeChat'
@@ -26,6 +26,7 @@ export function registerIpc(win: BrowserWindow): void {
     reloadRules()
     return snapshot()
   })
+  ipcMain.handle('rules:kernels', (_e, force?: boolean) => listKernels(!!force))
   ipcMain.handle('rules:saveUser', (_e, rule: Rule, projectId?: string) => saveUserRule(rule, projectId))
   ipcMain.handle('rules:deleteUser', (_e, code: string, projectId?: string) => deleteUserRule(code, projectId))
   ipcMain.handle('rules:openFile', (_e, file: string) => shell.openPath(file))

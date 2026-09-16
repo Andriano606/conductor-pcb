@@ -170,6 +170,15 @@ export interface AppConfig {
   lastUsage: UsageWindow[]
 }
 
+/** One check kernel as `pcbagent.cli kernels --json` describes it (built-in, generic declarative, or the file: convention). */
+export interface KernelInfo {
+  name: string
+  kind: 'builtin' | 'generic'
+  emits: string[]
+  summary?: string
+  params: { key: string; type?: string; default?: unknown; required?: boolean; unit?: string; description?: string }[]
+}
+
 /** A rule with the user's overrides applied. */
 export interface EffectiveRule extends Rule {
   effective: {

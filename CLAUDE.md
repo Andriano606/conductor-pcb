@@ -116,7 +116,14 @@ when sources are newer (tested in `tests/scripts/launch.test.ts`).
 
 `pcbagent/kicad_io.py` (board snapshot via kicad-python), `checks.py` (measurement kernels `check_<name>` → `Finding(code)`),
 `engine.py` (loads rule files/dir/URL, runs each enabled rule's kernel with its params/args, re-tags codes/severities;
-`tests/test_engine.py` proves parity with the old hardcoded `Checker.run()`, `tests/test_checks_baseline.py` pins every kernel),
+`tests/test_engine.py` proves parity with the old hardcoded `Checker.run()`, `tests/test_checks_baseline.py` pins every kernel,
+`tests/test_rules_golden.py` runs **every bundled rule** on synthetic boards and pins the findings in `tests/golden_rules.json`
+(regenerate on purpose with `UPDATE_GOLDEN=1`)). Kernels come in three kinds: hand-written `Checker.check_<name>`, **generic
+declarative** ones (`checks.GENERIC_KERNELS`: net_track_length, net_via_count, net_track_width, net_on_layer, component_distance,
+every selector/threshold from the rule file), and **file kernels** `check.kernel = "file:<path>.py:<function>"` (`function(checker)
+-> list[Finding]`, path relative to the rule file). `CheckConfig` is open: unknown rule keys land in `cfg.extra`, kernels read
+`cfg.get(key)` / `cfg.require(key)`. `python -m pcbagent.cli kernels --json` lists kernels + params; the app's import modal uses it
+(`kernelWarnings` in `src/shared/rules.ts`) to warn about unknown kernels / unused or missing params without blocking.
 `router.py` (A* grid router), `fixes.py` (GND via planner, route jobs), `mcp_server.py` (tools for Claude),
 `cli.py` (`python -m pcbagent.cli check --json --post <dir>`, what the «Перевірити плату» button runs).
 Tests: `.venv/bin/python -m pytest -q tests`. KiCad must be started as `AppImage pcbnew <board>` (not via the

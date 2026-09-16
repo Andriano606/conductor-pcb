@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyOverride, applyOverrides, effectiveDiffers, mergeOverride, overrideIsEmpty, rulesDifferingFromGlobal, snapshotOverrides, validateRule, withProjectOverride } from '@shared/rules'
+import { applyOverride, applyOverrides, effectiveDiffers, kernelWarnings, mergeOverride, overrideIsEmpty, rulesDifferingFromGlobal, snapshotOverrides, validateRule, withProjectOverride } from '@shared/rules'
 import { sampleRule } from '../helpers/sample'
 import type { PcbProject } from '@shared/types'
 
@@ -52,5 +52,30 @@ describe('validateRule check block', () => {
     expect(validateRule({ ...sampleRule(), check: { kernel: 'ok', args: [1] } }).join()).toMatch(/args/)
     // kicad-drc rules do not need a check block
     expect(validateRule({ ...sampleRule(), check: undefined, checker: { engine: 'kicad-drc' } })).toEqual([])
+  })
+})
+
+describe('kernels: file: kernels and import warnings', () => {
+  const kernels = [
+    { name: 'plane_cuts', kind: 'builtin' as const, emits: ['PLANE_CUT', 'NO_GND_PLANE'], params: [{ key: 'plane_cut_warn_len' }, { key: 'plane_cut_error_len' }, { key: 'plane_layer_hint' }] },
+    { name: 'net_via_count', kind: 'generic' as const, emits: ['NET_VIA_COUNT'], params: [{ key: 'net_regex', required: true }, { key: 'max_vias', required: true }] },
+    { name: 'kicad_drc', kind: 'builtin' as const, emits: ['DRC_<TYPE>'], params: [] }
+  ]
+  it('validateRule accepts file:<path>.py:<function> kernels and rejects malformed ones', () => {
+    expect(validateRule(sampleRule({ check: { kernel: 'file:./my_kernels.py:check_x' } }))).toEqual([])
+    expect(validateRule(sampleRule({ check: { kernel: 'file:my_kernels.py' } }))).toHaveLength(1)
+    expect(validateRule(sampleRule({ check: { kernel: 'Bad-Name' } }))).toHaveLength(1)
+  })
+  it('warns about unknown kernels, unused / missing params and impossible emits', () => {
+    expect(kernelWarnings(sampleRule({ check: { kernel: 'plane_cuts', emits: 'PLANE_CUT' }, params: [{ key: 'plane_cut_warn_len', label: 'x', default: 1 }] }), kernels)).toEqual([])
+    expect(kernelWarnings(sampleRule({ check: { kernel: 'nope' } }), kernels)[0]).toMatch(/Невідоме ядро «nope»/)
+    const w = kernelWarnings(sampleRule({ code: 'I2C_VIAS', check: { kernel: 'net_via_count', emits: 'NET_VIA_COUNT', args: { max_vias: 1 } }, params: [{ key: 'thr', label: 'x', default: 1 }] }), kernels)
+    expect(w).toHaveLength(2)
+    expect(w[0]).toMatch(/не читає: thr/)
+    expect(w[1]).toMatch(/вимагає: net_regex/)
+    expect(kernelWarnings(sampleRule({ code: 'X', check: { kernel: 'plane_cuts' }, params: [] }), kernels)[0]).toMatch(/не видає код «X»/)
+    expect(kernelWarnings(sampleRule({ code: 'DRC_CLEARANCE', check: { kernel: 'kicad_drc' }, params: [] }), kernels)).toEqual([]) // wildcard emits
+    expect(kernelWarnings(sampleRule({ check: { kernel: 'file:k.py:check_x' } }), kernels)[0]).toMatch(/Ядро з файлу/)
+    expect(kernelWarnings(sampleRule({ checker: { engine: 'kicad-drc' }, check: { kernel: 'zzz' } }), kernels)).toEqual([])
   })
 })

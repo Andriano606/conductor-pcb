@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AppConfig, CheckProgress, MultiCheckResult, RuleOverride, ChatAttachment, ChatAnswer, ChatSession, ClaudeProfile, CustomPrompt, EnvVar, UsageWindow, ChatEventPayload, ChatSnapshot, CheckerConfigExport, FindingsReport, KicadStatus, PcbProject, Rule, RulesSnapshot } from '../shared/types'
+import type { AppConfig, CheckProgress, KernelInfo, MultiCheckResult, RuleOverride, ChatAttachment, ChatAnswer, ChatSession, ClaudeProfile, CustomPrompt, EnvVar, UsageWindow, ChatEventPayload, ChatSnapshot, CheckerConfigExport, FindingsReport, KicadStatus, PcbProject, Rule, RulesSnapshot } from '../shared/types'
 
 export interface ApiStatus {
   running: boolean
@@ -13,6 +13,7 @@ const api = {
   setProjectOverride: (projectId: string, code: string, ov: RuleOverride | null): Promise<RulesSnapshot> => ipcRenderer.invoke('rules:setProjectOverride', projectId, code, ov),
   resetProjectOverrides: (projectId: string): Promise<RulesSnapshot> => ipcRenderer.invoke('rules:resetProjectOverrides', projectId),
   reloadRules: (): Promise<RulesSnapshot> => ipcRenderer.invoke('rules:reload'),
+  listKernels: (force?: boolean): Promise<KernelInfo[]> => ipcRenderer.invoke('rules:kernels', force),
   saveUserRule: (rule: Rule, projectId?: string): Promise<string[]> => ipcRenderer.invoke('rules:saveUser', rule, projectId),
   deleteUserRule: (code: string, projectId?: string): Promise<boolean> => ipcRenderer.invoke('rules:deleteUser', code, projectId),
   openRuleFile: (file: string): Promise<string> => ipcRenderer.invoke('rules:openFile', file),

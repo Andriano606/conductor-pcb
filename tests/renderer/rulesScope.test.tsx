@@ -25,6 +25,7 @@ function mockApi(): Record<string, ReturnType<typeof vi.fn>> {
     setProjectOverride: vi.fn().mockResolvedValue(snap([], 'p1')),
     resetProjectOverrides: vi.fn().mockResolvedValue(snap([], 'p1')),
     saveUserRule: vi.fn().mockResolvedValue([]),
+    listKernels: vi.fn().mockResolvedValue([{ name: 'net_via_count', kind: 'generic', emits: ['NET_VIA_COUNT'], params: [{ key: 'net_regex', required: true }, { key: 'max_vias', required: true }] }]),
     deleteUserRule: vi.fn().mockResolvedValue(true),
     reloadRules: vi.fn().mockResolvedValue(undefined),
     pickJsonFile: vi.fn(),
@@ -140,6 +141,15 @@ describe('rules scope', () => {
     expect(backdrops).toHaveLength(2)
     expect(backdrops[1].classList.contains('stacked')).toBe(true) // rendered after, with the higher z-index class
     expect(backdrops[0].classList.contains('stacked')).toBe(false)
+  })
+  it('the import modal warns about kernel problems without blocking the save', async () => {
+    mockApi()
+    render(<ImportRuleModal scope="global" />)
+    fireEvent.change(screen.getByPlaceholderText(/"code"/), { target: { value: JSON.stringify(sampleRule({ code: 'I2C_VIAS', check: { kernel: 'net_via_count', emits: 'NET_VIA_COUNT', args: { max_vias: 1 } } })) } })
+    const list = await screen.findByLabelText('Попередження щодо ядра')
+    expect(list).toHaveTextContent('не читає: thr')
+    expect(list).toHaveTextContent('вимагає: net_regex')
+    expect(screen.getByText('Зберегти правило')).toBeEnabled()
   })
   it('imports save into the project dir or the user dir by scope', async () => {
     const api = mockApi()

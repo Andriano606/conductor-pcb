@@ -514,3 +514,4 @@ a { color: var(--accent); }
 .report-skipped { color: var(--warn); }
 .param-reset { padding: 2px 5px; margin-left: 6px; vertical-align: middle; }
 .check-rules-info { display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; font-size: 13px; color: var(--text-body); }
+.warnings { margin: 6px 0 0; padding-left: 18px; color: var(--warn); }

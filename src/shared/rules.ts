@@ -2,6 +2,7 @@ import type {
   AppConfig,
   CheckerConfigExport,
   EffectiveRule,
+  KernelInfo,
   PcbProject,
   Rule,
   RuleOverride,
@@ -13,6 +14,32 @@ import { CATEGORIES } from './types'
 
 const SEVERITIES: Severity[] = ['error', 'warning', 'info']
 const CODE_RE = /^[A-Z][A-Z0-9_]{2,63}$/
+/** `check.kernel`: a Checker method name, or `file:<path>.py:<function>` (a user's Python kernel). */
+const KERNEL_RE = /^([a-z][a-z0-9_]*|file:.+\.py:[A-Za-z_][A-Za-z0-9_]*)$/
+export const isFileKernel = (kernel: string): boolean => kernel.startsWith('file:')
+
+/**
+ * Non-blocking warnings about a rule's `check` block against the checker's kernel list
+ * (`pcbagent.cli kernels`): unknown kernel, params the kernel never reads, required params
+ * missing, an `emits` the kernel never produces. A `file:` kernel cannot be inspected.
+ */
+export function kernelWarnings(rule: Pick<Rule, 'code' | 'params' | 'check' | 'checker'>, kernels: KernelInfo[]): string[] {
+  const c = rule.check
+  if (!c || rule.checker?.engine !== 'pcbagent') return []
+  if (isFileKernel(c.kernel)) return [`Ядро з файлу (${c.kernel.slice(5)}): функція отримує checker і повертає список Finding; застосунок не може перевірити її параметри`]
+  const k = kernels.find((x) => x.name === c.kernel)
+  if (!k) return [`Невідоме ядро «${c.kernel}»: перевірка дасть RULE_KERNEL_MISSING. Доступні: ${kernels.map((x) => x.name).join(', ')}`]
+  const out: string[] = []
+  const known = new Set(k.params.map((p) => p.key))
+  const given = new Set([...rule.params.map((p) => p.key), ...Object.keys(c.args ?? {})])
+  const unused = [...given].filter((key) => !known.has(key))
+  if (unused.length) out.push(`Ядро «${k.name}» не читає: ${unused.join(', ')} (значення збережуться, але на перевірку не вплинуть)`)
+  const missing = k.params.filter((p) => p.required && !given.has(p.key)).map((p) => p.key)
+  if (missing.length) out.push(`Ядро «${k.name}» вимагає: ${missing.join(', ')} (у params або check.args), інакше перевірка впаде з CHECK_CRASHED`)
+  const emits = c.emits || rule.code
+  if (k.emits.length && !k.emits.includes(emits) && !k.emits.some((e) => e.includes('<'))) out.push(`Ядро «${k.name}» не видає код «${emits}» (видає: ${k.emits.join(', ')}); правило ніколи не спрацює`)
+  return out
+}
 
 /** Validate a parsed rule file. Returns a list of human-readable problems (empty = valid). */
 export function validateRule(r: unknown): string[] {
@@ -43,7 +70,7 @@ export function validateRule(r: unknown): string[] {
   if (o.check !== undefined) {
     const c = o.check as Record<string, unknown>
     if (!c || typeof c !== 'object' || typeof c.kernel !== 'string' || !c.kernel) p.push('check.kernel: назва ядра перевірки (рядок)')
-    else if (!/^[a-z][a-z0-9_]*$/.test(c.kernel)) p.push('check.kernel: малі літери, цифри, підкреслення')
+    else if (!KERNEL_RE.test(c.kernel)) p.push('check.kernel: назва ядра (малі літери, цифри, підкреслення) або file:<шлях>.py:<функція>')
     if (c && c.emits !== undefined && (typeof c.emits !== 'string' || !CODE_RE.test(c.emits))) p.push('check.emits: код знахідки у форматі коду правила')
     if (c && c.args !== undefined && (typeof c.args !== 'object' || Array.isArray(c.args))) p.push('check.args: об’єкт ключ → значення')
   } else if (eng === 'pcbagent') {
