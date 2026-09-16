@@ -46,7 +46,7 @@ function ProjectRow({ p, active, busy, expanded, runningBoards, onSelect, onDele
   const boards = p.boards?.length ? p.boards : [p.boardFile]
   const short = (b: string): string => (b.startsWith(p.dir) ? b.slice(p.dir.length + 1) : b.split('/').pop() ?? b)
   return (
-    <div className={'project-item' + (expanded ? ' expanded' : '')}>
+    <div className={'project-item' + (expanded ? ' expanded' : '') + (active ? ' active' : '')}>
     <div className={'project-row' + (active ? ' active' : '')} onClick={onSelect} role="button" tabIndex={0}
       onKeyDown={(e) => e.key === 'Enter' && onSelect()}>
       <button className={'icon-btn small chevron' + (expanded ? ' open' : '')} title={expanded ? 'Сховати плати' : `Показати плати (${boards.length})`} aria-label={expanded ? 'Сховати плати' : 'Показати плати'} aria-expanded={expanded}
@@ -75,7 +75,7 @@ function ProjectRow({ p, active, busy, expanded, runningBoards, onSelect, onDele
             <li key={b} className="board-row" title={b}>
               <span className={'api-dot' + (open ? ' on' : '')} title={open ? 'відкрита в KiCad' : 'не відкрита'} />
               <span className="board-row-name">{short(b)}</span>
-              {lc ? <span className="board-row-counts" title="помилки / попередження / інфо в останній перевірці">{lc.error}/{lc.warning}/{lc.info}</span> : <span className="muted small">—</span>}
+              {lc && <span className="board-row-counts" title="помилки / попередження / інфо в останній перевірці">{lc.error}/{lc.warning}/{lc.info}</span>}
               <button className="icon-btn small board-open" title="Відкрити в KiCad" aria-label={`Відкрити ${short(b)} в KiCad`} onClick={(e) => { e.stopPropagation(); void window.api.openBoard(p.id, b) }}>⧉</button>
             </li>
           )

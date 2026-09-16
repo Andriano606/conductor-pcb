@@ -471,12 +471,17 @@ a { color: var(--accent); }
 
 /* ---- project rows: expandable board list ---- */
 .project-item { border-radius: 6px; }
+/* an expanded project and its board list read as one block: the row's own background moves to the block */
+.project-item.expanded { background: var(--bg-3); }
+.project-item.expanded.active { background: var(--bg-4); }
+.project-item.expanded .project-row, .project-item.expanded .project-row:hover { background: transparent; }
+.project-item.expanded .project-row.active { color: var(--text); }
 .project-row .chevron { opacity: 0.7; padding: 0 4px; transition: transform 0.15s; font-size: 12px; }
 .project-row .chevron.open { transform: rotate(90deg); }
 .project-row:hover .chevron, .project-item.expanded .chevron { opacity: 1; }
 .board-list { list-style: none; margin: 0 0 4px; padding: 0 0 0 26px; display: flex; flex-direction: column; gap: 1px; }
 .board-row { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-radius: 5px; font-size: 12px; color: var(--text-dim); }
-.board-row:hover { background: var(--bg-3); color: var(--text); }
+.board-row:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
 .board-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .board-row-counts { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
 .board-row .board-open { opacity: 0; font-size: 12px; padding: 0 4px; }

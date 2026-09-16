@@ -73,6 +73,8 @@ describe('ProjectSidebar boards', () => {
     expect(api.listBoards).toHaveBeenCalledWith('p1')
     expect(await screen.findByText('sub/b.kicad_pcb')).toBeInTheDocument()
     expect(screen.getByText('2/1/0')).toBeInTheDocument()
+    expect(screen.queryByText('—')).not.toBeInTheDocument() // an unchecked board shows no placeholder
+    expect(document.querySelector('.project-item.expanded.active')).not.toBeNull()
     fireEvent.click(screen.getByLabelText('Відкрити sub/b.kicad_pcb в KiCad'))
     expect(api.openBoard).toHaveBeenCalledWith('p1', B)
     fireEvent.click(screen.getByLabelText('Сховати плати'))
