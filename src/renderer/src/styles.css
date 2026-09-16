@@ -464,7 +464,7 @@ a { color: var(--accent); }
 .link.danger { color: var(--danger); }
 
 /* ---- session-start notice: describeStart's one-liner, one option per line ---- */
-.chat-start { white-space: normal; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.chat-start { white-space: normal; display: flex; flex-direction: column; gap: 2px; } /* inherits .chat-info centering, like conductor-linux */
 .chat-start-key { color: var(--text-faint); }
 .chat-start-val.off { color: var(--text-faint); }
 .chat-start-line.args .chat-start-val { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
