@@ -29,6 +29,9 @@ export function CheckBoardsModal(): JSX.Element | null {
   const setCheckBoards = useStore((s) => s.setCheckBoards)
   const runChecks = useStore((s) => s.runChecks)
   const refreshKicad = useStore((s) => s.refreshKicad)
+  const rulesInfo = useStore((s) => s.checkModalRules)
+  const setView = useStore((s) => s.setView)
+  const selectProject = useStore((s) => s.selectProject)
   const project = projects.find((p) => p.id === projectId) ?? null
 
   useEffect(() => {
@@ -61,6 +64,12 @@ export function CheckBoardsModal(): JSX.Element | null {
           <h2>Перевірити плати: {project.name}</h2>
           <button className="icon-btn" onClick={close} aria-label="Закрити" disabled={checking}>✕</button>
         </header>
+        {rulesInfo && (
+          <div className="check-rules-info" title="Правила зі скоупу цього проекту (глобальні + власні), увімкнені у вкладці «Правила»">
+            <span>Правил буде застосовано: <b>{rulesInfo.enabled}</b> з {rulesInfo.total}</span>
+            <button className="link" disabled={checking} onClick={() => { void openCheckModal(null); void selectProject(project.id).then(() => setView('rules')) }}>переглянути</button>
+          </div>
+        )}
         <p className="muted small">
           Вибір запам'ятовується для проекту. Плата, відкрита в KiCad, перевіряється одразу; закриті плати застосунок відкриє сам
           по черзі, якщо жоден інший редактор pcbnew не запущений (API KiCad доступний лише з одного).

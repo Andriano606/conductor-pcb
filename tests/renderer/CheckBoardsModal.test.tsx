@@ -28,6 +28,15 @@ describe('CheckBoardsModal', () => {
     useStore.setState({ projects: [project], checkModalProject: 'p1', checkProgress: {}, checking: {}, kicad: {}, checkResult: null, expandedProjects: {} })
     useChatStore.setState({ chats: {} })
   })
+  it('says how many rules will run for the project', async () => {
+    const ext = api as typeof api & { getRules: ReturnType<typeof vi.fn> }
+    ext.getRules = vi.fn().mockResolvedValue({ rules: [{ code: 'A', effective: { enabled: true } }, { code: 'B', effective: { enabled: false } }, { code: 'C', effective: { enabled: true } }], errors: [], bundledDir: '', userRulesDir: '' })
+    useStore.setState({ checkModalProject: null, checkModalRules: null })
+    await useStore.getState().openCheckModal('p1')
+    expect(ext.getRules).toHaveBeenCalledWith('p1')
+    render(<CheckBoardsModal />)
+    expect(screen.getByText(/Правил буде застосовано:/)).toHaveTextContent('Правил буде застосовано: 2 з 3')
+  })
   it('lists the boards all on by default, remembers a switched-off board and checks only the selected ones', async () => {
     render(<CheckBoardsModal />)
     expect(await screen.findByText('відкрита в KiCad')).toBeInTheDocument()

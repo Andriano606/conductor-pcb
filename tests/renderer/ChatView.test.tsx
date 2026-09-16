@@ -75,7 +75,8 @@ describe('ChatView', () => {
     expect(await screen.findByText('Перевіряю…')).toBeDisabled()
   })
   it('«Перевірити плату» re-scans the boards and opens the board picker', async () => {
-    const ext = api as typeof api & { listBoards: ReturnType<typeof vi.fn>; listProjects: ReturnType<typeof vi.fn> }
+    const ext = api as typeof api & { listBoards: ReturnType<typeof vi.fn>; listProjects: ReturnType<typeof vi.fn>; getRules: ReturnType<typeof vi.fn> }
+    ext.getRules = vi.fn().mockResolvedValue({ rules: [{ code: 'A', effective: { enabled: true } }], errors: [], bundledDir: '', userRulesDir: '' })
     ext.listBoards = vi.fn().mockResolvedValue(['/x/board/board.kicad_pcb', '/x/board/sub/other.kicad_pcb'])
     ext.listProjects = vi.fn().mockResolvedValue([{ ...project, boards: ['/x/board/board.kicad_pcb', '/x/board/sub/other.kicad_pcb'] }])
     useStore.setState({ kicad: { p1: { running: true, apiSocket: true } }, checkModalProject: null })
@@ -84,6 +85,7 @@ describe('ChatView', () => {
     await vi.waitFor(() => expect(useStore.getState().checkModalProject).toBe('p1'))
     expect(ext.listBoards).toHaveBeenCalledWith('p1')
     expect(useStore.getState().projects[0].boards).toHaveLength(2)
+    expect(useStore.getState().checkModalRules).toEqual({ enabled: 1, total: 1 })
   })
   it('renders the session-start notice one option per line', async () => {
     render(<ChatView project={project} session={session} />)

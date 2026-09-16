@@ -508,3 +508,4 @@ a { color: var(--accent); }
 .report-error { color: var(--danger); margin: 8px 0 12px; }
 .report-skipped { color: var(--warn); }
 .param-reset { padding: 2px 5px; margin-left: 6px; vertical-align: middle; }
+.check-rules-info { display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; font-size: 13px; color: var(--text-body); }

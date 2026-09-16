@@ -37,6 +37,8 @@ interface State {
   checking: Record<string, boolean>
   /** The board-picker modal of «Перевірити плату» (project id) or null. */
   checkModalProject: string | null
+  /** Rules that will run for the picker's project: enabled / total in its scope. */
+  checkModalRules: { enabled: number; total: number } | null
   /** Live per-board progress of the running check, keyed by board file. */
   checkProgress: Record<string, CheckProgress>
   /** The last finished «Перевірити плату» run, shown in CheckReportModal until closed. */
@@ -137,6 +139,7 @@ export const useStore = create<State>((set, get) => ({
   kicad: {},
   checking: {},
   checkModalProject: null,
+  checkModalRules: null,
   checkProgress: {},
   checkResult: null,
   expandedProjects: {},
@@ -252,8 +255,12 @@ export const useStore = create<State>((set, get) => ({
     set({ kicad: { ...get().kicad, [id]: st } })
   },
   openCheckModal: async (projectId) => {
-    if (projectId) await get().refreshBoards(projectId)
-    set({ checkModalProject: projectId })
+    if (!projectId) {
+      set({ checkModalProject: null })
+      return
+    }
+    const [, snap] = await Promise.all([get().refreshBoards(projectId), window.api.getRules(projectId)])
+    set({ checkModalProject: projectId, checkModalRules: { enabled: snap.rules.filter((r) => r.effective.enabled).length, total: snap.rules.length } })
   },
   refreshBoards: async (projectId) => {
     await window.api.listBoards(projectId)
