@@ -89,6 +89,17 @@ describe('ChatView', () => {
     fireEvent.click(screen.getByText('Перевірити плату'))
     await vi.waitFor(() => expect(useStore.getState().addError).toBe('KiCad API недоступний'))
   })
+  it('renders the session-start notice one option per line', async () => {
+    render(<ChatView project={project} session={session} />)
+    await screen.findByPlaceholderText(/Що змінити на платі/)
+    useChatStore.getState().applyEvent({ id: 'p1', seq: 1, ev: { type: 'push', item: { id: 'i', role: 'info', text: '🔄 Сесію запущено · модель: default · зусилля: high · режим: default · resume: так (1744f7dd…) · MCP: 1 (pcbagent) · профіль: стандартний ~/.claude · args: --dangerously-skip-permissions', ts: 1 } } })
+    expect(await screen.findByText('Сесію запущено')).toBeInTheDocument()
+    expect(screen.getByText('high')).toBeInTheDocument()
+    expect(screen.getByText('так (1744f7dd…)')).toBeInTheDocument()
+    expect(screen.getByText('--dangerously-skip-permissions')).toBeInTheDocument()
+    expect(document.querySelectorAll('.chat-start-line')).toHaveLength(8)
+    expect(screen.getAllByText('default').every((el) => el.classList.contains('off'))).toBe(true)
+  })
   it('re-attaches on a sequence gap', () => {
     const apply = useChatStore.getState().applyEvent
     apply({ id: 'p9', seq: 5, ev: { type: 'busy', busy: true } })

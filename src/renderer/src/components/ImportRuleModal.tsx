@@ -69,7 +69,7 @@ export function ImportRuleModal({ scope }: { scope: string }): JSX.Element {
 
   const r = parsed.rule
   return (
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setImportOpen(false)}>
+    <div className="modal-backdrop stacked" onMouseDown={(e) => e.target === e.currentTarget && setImportOpen(false)}>
       <div className="modal wide" role="dialog" aria-label="Імпорт правила">
         <header>
           <h2>{scopeProject ? `Імпортувати правило для проекту ${scopeProject.name}` : 'Імпортувати глобальне правило'}</h2>

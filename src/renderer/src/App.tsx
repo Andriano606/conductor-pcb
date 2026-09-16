@@ -85,9 +85,10 @@ export function App(): JSX.Element {
           </main>
         )}
       </div>
+      {/* stacking order = opening order: settings → global rules → import; confirm is always on top */}
       {settingsOpen && <SettingsModal />}
-      {importScope !== null && <ImportRuleModal scope={importScope} />}
       {globalRulesOpen && <GlobalRulesModal />}
+      {importScope !== null && <ImportRuleModal scope={importScope} />}
       <CheckReportModal sessionId={session?.id ?? null} />
       <ConfirmModal />
     </div>

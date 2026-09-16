@@ -1,13 +1,12 @@
 import React, { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { EffectiveRule, Severity } from '@shared/types'
+import type { EffectiveRule, RuleOverride, Severity } from '@shared/types'
 import { CATEGORIES, SEVERITY_LABEL } from '@shared/types'
 import { useStore } from '../store'
 import { BoardDiagram } from './BoardDiagram'
 import { ParamsTable } from './ParamsTable'
 import { SeverityBadge } from './SeverityBadge'
-import { Toggle } from './Toggle'
 
 const ENGINE_LABEL = { pcbagent: 'pcbagent (наш перевіряч)', 'kicad-drc': 'KiCad DRC', manual: 'вручну' }
 
@@ -29,7 +28,11 @@ export function RuleView({ rule, scope }: { rule: EffectiveRule; scope?: string 
   const hits = report?.findings.filter((f) => f.code === rule.code) ?? []
   const scopeProject = ruleScope === 'global' ? null : projects.find((p) => p.id === ruleScope)
   const projectOverride = scopeProject?.ruleOverrides?.[rule.code]
-  const hasProjectOverride = !!projectOverride && Object.keys(projectOverride).some((k) => k === 'params' ? Object.keys(projectOverride.params ?? {}).length > 0 : true)
+  const nonEmpty = (ov: RuleOverride | undefined): boolean => !!ov && Object.keys(ov).some((k) => (k === 'params' ? Object.keys(ov.params ?? {}).length > 0 : true))
+  const hasProjectOverride = nonEmpty(projectOverride)
+  const hasGlobalOverride = nonEmpty(config?.overrides[rule.code])
+  // what «Скинути до типових» undoes: the project's override (back to the global values) or the global one (back to the rule file)
+  const canReset = scopeProject ? hasProjectOverride : hasGlobalOverride
   const cat = CATEGORIES.find((c) => c.id === rule.category)?.label ?? rule.category
   const setOverride = (code: string, ov: Parameters<typeof setOverrideStore>[1]): Promise<void> => setOverrideStore(code, ov, ruleScope)
   const deletable = rule.source === 'project' ? (ruleScope !== 'global' ? ruleScope : null) : rule.source === 'user' ? 'global' : null
@@ -49,6 +52,11 @@ export function RuleView({ rule, scope }: { rule: EffectiveRule; scope?: string 
             <code>{rule.code}</code>
             {rule.source === 'user' && <span className="src-badge">користувацьке</span>}
             {rule.source === 'project' && <span className="src-badge project">лише цей проект</span>}
+            {scopeProject && (
+              <span className={'scope-badge' + (hasProjectOverride ? ' changed' : '')} title={hasProjectOverride ? 'Це правило змінено для проекту; в інших проектах діють глобальні значення' : 'Правило успадковує глобальні налаштування; зміни тут діятимуть лише для цього проекту'}>
+                {hasProjectOverride ? `змінено для ${scopeProject.name}` : 'як у глобальних'}
+              </span>
+            )}
           </div>
           <h1>{rule.title}</h1>
           <p className="summary">{rule.summary}</p>
@@ -64,15 +72,10 @@ export function RuleView({ rule, scope }: { rule: EffectiveRule; scope?: string 
               ))}
             </select>
           </label>
-          <label className="field toggle">
-            <span>Увімкнено</span>
-            <Toggle checked={rule.effective.enabled} onChange={(v) => void setOverride(rule.code, { enabled: v })} label="Увімкнено" />
-          </label>
-          {scopeProject && (
-            hasProjectOverride
-              ? <button className="scope-badge changed" title="Це правило змінено для проекту. Натисніть, щоб повернути глобальні налаштування" onClick={() => void resetOverride(rule.code, ruleScope)}>змінено для {scopeProject.name} · скинути</button>
-              : <span className="scope-badge" title="Правило успадковує глобальні налаштування; зміни тут діятимуть лише для цього проекту">як у глобальних</span>
-          )}
+          <button className="btn subtle reset-btn" disabled={!canReset} onClick={() => void resetOverride(rule.code, ruleScope)}
+            title={scopeProject ? 'Прибрати зміни цього проекту: рівень, увімкненість і пороги знову як у глобальних' : 'Прибрати глобальні зміни: рівень, увімкненість і пороги як у файлі правила'}>
+            Скинути до типових
+          </button>
         </div>
       </header>
 

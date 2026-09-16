@@ -22,6 +22,7 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
   const projects = useStore((s) => s.projects)
   const ruleScope = useStore((s) => s.ruleScope)
   const setImportScope = useStore((s) => s.setImportScope)
+  const setOverride = useStore((s) => s.setOverride)
   const setGlobalRulesOpen = useStore((s) => s.setGlobalRulesOpen)
   const scopeProject = projects.find((p) => p.id === ruleScope) ?? null
 
@@ -79,21 +80,20 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
           <section key={g.id} className="group">
             <div className="group-title">{g.label}</div>
             {g.rules.map((r) => (
-              <button
-                key={r.code}
-                className={'rule-row' + (r.code === selected ? ' active' : '') + (r.effective.enabled ? '' : ' disabled')}
-                onClick={() => select(r.code)}
-                title={r.summary}
-              >
-                <SeverityDot severity={r.effective.severity} />
-                <span className="rule-row-text">
-                  <span className="rule-row-title">{r.title}</span>
-                  <span className="rule-row-code">{r.code}</span>
-                </span>
-                {hits.has(r.code) && <span className="hit-badge" title="Знахідок в останньому звіті">{hits.get(r.code)}</span>}
-                {r.source === 'user' && <span className="src-badge" title="Правило користувача (для всіх проектів)">U</span>}
-                {r.source === 'project' && <span className="src-badge project" title="Правило лише цього проекту">P</span>}
-              </button>
+              <div key={r.code} className={'rule-row switch' + (r.code === selected ? ' active' : '') + (r.effective.enabled ? '' : ' disabled')}>
+                <Toggle size="xs" checked={r.effective.enabled} onChange={(v) => void setOverride(r.code, { enabled: v })}
+                  label={scopeProject ? `Увімкнути ${r.code} для проекту ${scopeProject.name}` : `Увімкнути ${r.code}`} />
+                <button className="rule-row-btn" onClick={() => select(r.code)} title={r.summary}>
+                  <SeverityDot severity={r.effective.severity} />
+                  <span className="rule-row-text">
+                    <span className="rule-row-title">{r.title}</span>
+                    <span className="rule-row-code">{r.code}</span>
+                  </span>
+                  {hits.has(r.code) && <span className="hit-badge" title="Знахідок в останньому звіті">{hits.get(r.code)}</span>}
+                  {r.source === 'user' && <span className="src-badge" title="Правило користувача (для всіх проектів)">U</span>}
+                  {r.source === 'project' && <span className="src-badge project" title="Правило лише цього проекту">P</span>}
+                </button>
+              </div>
             ))}
           </section>
         ))}

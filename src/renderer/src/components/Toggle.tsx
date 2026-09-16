@@ -1,7 +1,7 @@
 import React from 'react'
 
 /** iOS-style on/off switch. */
-export function Toggle({ checked, onChange, label, disabled, size = 'md' }: { checked: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean; size?: 'sm' | 'md' }): JSX.Element {
+export function Toggle({ checked, onChange, label, disabled, size = 'md' }: { checked: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean; size?: 'xs' | 'sm' | 'md' }): JSX.Element {
   return (
     <button
       type="button"
@@ -10,7 +10,7 @@ export function Toggle({ checked, onChange, label, disabled, size = 'md' }: { ch
       aria-label={label}
       title={label}
       disabled={disabled}
-      className={'toggle' + (checked ? ' on' : '') + (size === 'sm' ? ' sm' : '')}
+      className={'toggle' + (checked ? ' on' : '') + (size === 'sm' ? ' sm' : size === 'xs' ? ' xs' : '')}
       onClick={() => onChange(!checked)}
     >
       <span className="toggle-knob" />

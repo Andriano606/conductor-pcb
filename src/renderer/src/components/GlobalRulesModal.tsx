@@ -83,8 +83,8 @@ export function GlobalRulesModal(): JSX.Element {
                 <section key={g.id} className="group">
                   <div className="group-title">{g.label}</div>
                   {g.rules.map((r) => (
-                    <div key={r.code} className={'rule-row global' + (current?.code === r.code ? ' active' : '') + (r.effective.enabled ? '' : ' disabled')}>
-                      <Toggle size="sm" checked={r.effective.enabled} onChange={(v) => void setOverride(r.code, { enabled: v }, 'global')} label={`Увімкнути ${r.code} для всіх проектів`} />
+                    <div key={r.code} className={'rule-row switch' + (current?.code === r.code ? ' active' : '') + (r.effective.enabled ? '' : ' disabled')}>
+                      <Toggle size="xs" checked={r.effective.enabled} onChange={(v) => void setOverride(r.code, { enabled: v }, 'global')} label={`Увімкнути ${r.code} для всіх проектів`} />
                       <button className="rule-row-btn" onClick={() => setSelected(r.code)} title={r.summary}>
                         <SeverityDot severity={r.effective.severity} />
                         <span className="rule-row-text">

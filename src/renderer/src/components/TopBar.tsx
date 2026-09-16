@@ -5,15 +5,21 @@ export function TopBar(): JSX.Element {
   const view = useStore((s) => s.view)
   const setView = useStore((s) => s.setView)
   const rules = useStore((s) => s.rules)
+  const projects = useStore((s) => s.projects)
+  const ruleScope = useStore((s) => s.ruleScope)
   const api = useStore((s) => s.api)
   const report = useStore((s) => s.report)
   const hits = report?.findings.length ?? 0
+  // `rules` is the active project's scope (global defaults + its overrides + its own rules)
+  const enabled = rules.filter((r) => r.effective.enabled).length
+  const scopeName = projects.find((p) => p.id === ruleScope)?.name
+  const rulesTitle = `Увімкнено ${enabled} з ${rules.length} правил${scopeName ? ` для проекту ${scopeName}` : ''}`
   return (
     <header className="topbar">
       <div className="topbar-left">
         <button className={'tab' + (view === 'chat' ? ' active' : '')} onClick={() => setView('chat')}>Чат</button>
-        <button className={'tab' + (view === 'rules' ? ' active' : '')} onClick={() => setView('rules')} title="Бібліотека правил трасування">
-          <BookIcon /> Правила <span className="count">{rules.length}</span>
+        <button className={'tab' + (view === 'rules' ? ' active' : '')} onClick={() => setView('rules')} title={rulesTitle}>
+          <BookIcon /> Правила <span className="count" aria-label={rulesTitle}>{enabled}</span>
           {hits > 0 && <span className="hit-badge" title="Знахідок в останньому звіті">{hits}</span>}
         </button>
       </div>

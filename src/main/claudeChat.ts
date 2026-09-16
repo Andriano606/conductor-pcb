@@ -23,6 +23,8 @@ export interface StartOpts {
   effort?: string
   /** Extra environment (CLAUDE_CONFIG_DIR of a merged profile dir, profile env vars). */
   env?: NodeJS.ProcessEnv
+  /** Human label of the Claude config profile(s) in use, for the start notice. */
+  profileLabel?: string
 }
 
 interface Entry {
@@ -41,6 +43,8 @@ interface Entry {
   initRequestId?: string
   commands?: ChatCommand[]
   models?: ChatModelOption[]
+  /** Set after the first spawn; later (re)starts push a start notice into the transcript. */
+  everSpawned?: boolean
 }
 
 const MAX_ITEMS = 2000
@@ -165,6 +169,41 @@ export function buildCommand(opts: StartOpts): string {
   return ['exec', fixed.map(quote).join(' '), opts.args?.trim() ?? '', tail.map(quote).join(' ')].filter(Boolean).join(' ')
 }
 
+/** MCP server names from the --mcp-config file, for the start notice. */
+function mcpServerNames(mcpConfig?: string): string[] {
+  if (!mcpConfig) return []
+  try {
+    const parsed = JSON.parse(readFileSync(mcpConfig, 'utf8')) as { mcpServers?: Record<string, unknown> }
+    return Object.keys(parsed.mcpServers ?? {})
+  } catch {
+    return []
+  }
+}
+
+export const START_NOTICE_PREFIX = '🔄 Сесію запущено · '
+
+/**
+ * A human-readable one-liner describing exactly how the session is (re)started — every
+ * parameter that shapes the `claude` process (same format as conductor-linux; the renderer
+ * splits it back into one option per line). Pushed into the transcript on every spawn
+ * except the very first of a brand-new empty session.
+ */
+export function describeStart(opts: StartOpts): string {
+  const mcp = mcpServerNames(opts.mcpConfig)
+  const args = opts.args?.trim() ?? ''
+  const mode = /--permission-mode[= ]+([\w-]+)/.exec(args)?.[1] ?? 'default'
+  const parts = [
+    `модель: ${opts.model ?? 'default'}`,
+    `зусилля: ${opts.effort ?? 'default'}`,
+    `режим: ${mode}`,
+    `resume: ${opts.resume ? `так (${opts.resume.slice(0, 8)}…)` : 'ні — нова розмова'}`,
+    `MCP: ${mcp.length ? `${mcp.length} (${mcp.join(', ')})` : 'немає'}`,
+    `профіль: ${opts.profileLabel ?? (opts.env?.CLAUDE_CONFIG_DIR ? opts.env.CLAUDE_CONFIG_DIR : 'стандартний ~/.claude')}`,
+    `args: ${args || 'немає'}`
+  ]
+  return `${START_NOTICE_PREFIX}${parts.join(' · ')}`
+}
+
 function writeLine(e: Entry, obj: unknown): void {
   e.proc?.stdin?.write(JSON.stringify(obj) + '\n')
 }
@@ -176,6 +215,8 @@ export function startChat(id: string, opts: StartOpts): void {
   const env = buildEnv(opts.env ?? {})
   const shell = env.SHELL || '/bin/bash'
   const command = buildCommand(opts)
+  if (opts.resume || e.everSpawned) info(id, e, describeStart(opts))
+  e.everSpawned = true
   console.log(`[chat ${id}] ${command}`)
   const proc = spawn(shell, ['-ilc', command], { cwd: opts.cwd, env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] })
   e.proc = proc

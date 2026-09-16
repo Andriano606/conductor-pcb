@@ -190,8 +190,10 @@ export function startSessionChat(sessionId: string, userData: string, restart = 
   if (!found) return false
   const { project: p, session } = found
   const cfg = getConfig()
+  const profiles = projectProfiles(p)
   const opts = {
     env: projectClaudeEnv(p, userData),
+    profileLabel: profiles.length ? profiles.map((x) => x.name).join(', ') : 'стандартний ~/.claude',
     cwd: p.dir,
     resume: session.claudeSessionId,
     mcpConfig: mcpConfigFor(p, userData),

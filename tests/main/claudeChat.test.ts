@@ -1,9 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { mkdtempSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import type { ChatEvent } from '@shared/types'
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp', getAppPath: () => '/tmp', isPackaged: false } }))
 
-import { _entryForTest, answerChat, buildCommand, handleLine, onChatEvent, onChatSessionId, setChatStorageDir, summarizeToolUse } from '../../src/main/claudeChat'
+import { _entryForTest, answerChat, buildCommand, describeStart, handleLine, onChatEvent, onChatSessionId, setChatStorageDir, summarizeToolUse } from '../../src/main/claudeChat'
 
 const events: ChatEvent[] = []
 onChatEvent((_id, _seq, ev) => events.push(ev))
@@ -15,6 +18,19 @@ function feed(id: string, lines: unknown[]): void {
   const e = _entryForTest(id)
   for (const l of lines) handleLine(id, e, JSON.stringify(l))
 }
+
+describe('describeStart', () => {
+  it('lists every parameter the session is started with, reading MCP names from the config file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mcp-'))
+    const mcp = join(dir, 'p.json')
+    writeFileSync(mcp, JSON.stringify({ mcpServers: { pcbagent: {} } }))
+    const text = describeStart({ cwd: '/x', resume: '1744f7dd-aaaa', mcpConfig: mcp, args: '--dangerously-skip-permissions', effort: 'high', profileLabel: 'стандартний ~/.claude' })
+    expect(text).toBe('🔄 Сесію запущено · модель: default · зусилля: high · режим: default · resume: так (1744f7dd…) · MCP: 1 (pcbagent) · профіль: стандартний ~/.claude · args: --dangerously-skip-permissions')
+    expect(describeStart({ cwd: '/x', model: 'opus', args: '--permission-mode plan', env: { CLAUDE_CONFIG_DIR: '/cfg/p1' } }))
+      .toBe('🔄 Сесію запущено · модель: opus · зусилля: default · режим: plan · resume: ні — нова розмова · MCP: немає · профіль: /cfg/p1 · args: --permission-mode plan')
+    expect(describeStart({ cwd: '/x', mcpConfig: '/nope.json' })).toContain('MCP: немає · профіль: стандартний ~/.claude · args: немає')
+  })
+})
 
 describe('buildCommand', () => {
   it('builds the headless stream-json invocation with optional parts', () => {

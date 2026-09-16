@@ -10,6 +10,7 @@ import { GlobalRulesModal } from '../../src/renderer/src/components/GlobalRulesM
 import { RuleSidebar } from '../../src/renderer/src/components/RuleSidebar'
 import { ImportRuleModal } from '../../src/renderer/src/components/ImportRuleModal'
 import { RuleView } from '../../src/renderer/src/components/RuleView'
+import { TopBar } from '../../src/renderer/src/components/TopBar'
 
 const p1: PcbProject = { id: 'p1', name: 'board', dir: '/x', proFile: '', boardFile: '', createdAt: 1, sessions: [{ id: 'p1', createdAt: 1 }] }
 const ruleA = sampleRule({ code: 'A_RULE', title: 'Rule A' })
@@ -82,10 +83,21 @@ describe('rules scope', () => {
     await vi.waitFor(() => expect(useStore.getState().rules.find((r) => r.code === 'A_RULE')?.effective.enabled).toBe(true))
     expect(useStore.getState().globalRules.find((r) => r.code === 'A_RULE')?.effective.enabled).toBe(false)
   })
-  it('the rules tab sidebar names the project and imports into its scope', () => {
+  it('the «Правила» tab counts the rules enabled for the current project', async () => {
     mockApi()
+    useStore.setState({ api: { running: false, url: '' } as never })
+    render(<TopBar />)
+    expect(screen.getByLabelText('Увімкнено 2 з 2 правил для проекту board')).toHaveTextContent('2')
+    useStore.setState({ rules: [applyOverride(ruleA, { enabled: false }), applyOverride(ruleB, undefined)] })
+    expect(await screen.findByLabelText('Увімкнено 1 з 2 правил для проекту board')).toHaveTextContent('1')
+  })
+  it('the rules tab sidebar names the project, toggles rules for it and imports into its scope', async () => {
+    const api = mockApi()
     render(<RuleSidebar rules={useStore.getState().rules} />)
     expect(screen.getByText('board')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Увімкнути A_RULE для проекту board'))
+    await vi.waitFor(() => expect(api.setProjectOverride).toHaveBeenCalledWith('p1', 'A_RULE', { enabled: false }))
+    expect(api.setConfig).not.toHaveBeenCalled()
     expect(screen.queryByLabelText('Область правил')).not.toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Імпортувати правило'))
     expect(useStore.getState().importScope).toBe('p1')
@@ -105,6 +117,19 @@ describe('rules scope', () => {
     fireEvent.click(screen.getByText('Rule B'))
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Rule B')
     expect(screen.queryByText('як у глобальних')).not.toBeInTheDocument()
+    expect(screen.getByText('Скинути до типових')).toBeDisabled()
+    useStore.setState({ config: { activeProjectId: 'p1', overrides: { B_RULE: { severity: 'info' } }, projects: [p1] } as never })
+    await vi.waitFor(() => expect(screen.getByText('Скинути до типових')).toBeEnabled())
+    fireEvent.click(screen.getByText('Скинути до типових'))
+    await vi.waitFor(() => expect(api.setConfig).toHaveBeenCalledWith({ overrides: { B_RULE: null } }))
+  })
+  it('the import modal stacks above the global rules window', () => {
+    mockApi()
+    render(<><GlobalRulesModal /><ImportRuleModal scope="global" /></>)
+    const backdrops = Array.from(document.querySelectorAll('.modal-backdrop'))
+    expect(backdrops).toHaveLength(2)
+    expect(backdrops[1].classList.contains('stacked')).toBe(true) // rendered after, with the higher z-index class
+    expect(backdrops[0].classList.contains('stacked')).toBe(false)
   })
   it('imports save into the project dir or the user dir by scope', async () => {
     const api = mockApi()
@@ -126,9 +151,12 @@ describe('rules scope', () => {
     const api = mockApi()
     const { rerender } = render(<RuleView rule={applyOverride(ruleA, undefined)} />)
     expect(screen.getByText('як у глобальних')).toBeInTheDocument()
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument() // enabling lives in the sidebar now
+    expect(screen.getByText('Скинути до типових')).toBeDisabled()
     useStore.setState({ projects: [{ ...p1, ruleOverrides: { A_RULE: { enabled: false } } }] })
     rerender(<RuleView rule={applyOverride(ruleA, { enabled: false })} />)
-    fireEvent.click(screen.getByText(/змінено для board/))
+    expect(await screen.findByText('змінено для board')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Скинути до типових'))
     await vi.waitFor(() => expect(api.setProjectOverride).toHaveBeenCalledWith('p1', 'A_RULE', null))
     rerender(<RuleView rule={applyOverride({ ...ruleA, source: 'project', file: '/pr/p1/A_RULE.json' }, undefined)} />)
     expect(screen.getByText('лише цей проект')).toBeInTheDocument()

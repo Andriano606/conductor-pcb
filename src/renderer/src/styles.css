@@ -156,6 +156,9 @@ a { color: var(--accent); }
 
 /* ---- modal ---- */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; z-index: 10; }
+/* modals opened from another modal stack above it; the confirm dialog above everything */
+.modal-backdrop.stacked { z-index: 20; }
+.modal-backdrop.confirm { z-index: 30; }
 .modal { width: min(820px, 92vw); max-height: 88vh; overflow-y: auto; background: var(--bg); border: 1px solid var(--border-strong); border-radius: 12px; padding: 18px 22px 24px; }
 .modal header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .modal h2 { margin: 0; font-size: 18px; }
@@ -326,6 +329,9 @@ a { color: var(--accent); }
 .toggle.sm { width: 34px; height: 20px; }
 .toggle.sm .toggle-knob { width: 14px; height: 14px; }
 .toggle.sm.on .toggle-knob { transform: translateX(14px); }
+.toggle.xs { width: 28px; height: 16px; }
+.toggle.xs .toggle-knob { top: 2px; left: 2px; width: 12px; height: 12px; }
+.toggle.xs.on .toggle-knob { transform: translateX(12px); }
 .scope { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
 .scope select { flex: 1; background: var(--bg-3); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 6px; }
 .scope-badge { font-size: 11px; padding: 3px 8px; border-radius: 999px; background: oklch(0.7 0.1 250 / 0.2); color: var(--info); white-space: nowrap; }
@@ -446,10 +452,17 @@ a { color: var(--accent); }
 .global-rules-list .sidebar-footer code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; display: inline-block; vertical-align: bottom; }
 .global-rules-content { flex: 1; min-width: 0; overflow-y: auto; }
 .global-rules-content .rule { padding: 20px 28px 40px; }
-.rule-row.global { padding: 4px 8px 4px 6px; gap: 8px; }
+.rule-row.switch { padding: 4px 8px 4px 6px; gap: 8px; }
 .rule-row-btn { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; background: transparent; border: 0; color: inherit; padding: 3px 0; }
-.rule-row.global.active { background: var(--bg-4); }
+.rule-row.switch.active { background: var(--bg-4); }
 .scope-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.scope-badge.changed { cursor: pointer; border: 0; background: oklch(0.78 0.15 80 / 0.2); color: var(--warn); }
+.scope-badge.changed { background: oklch(0.78 0.15 80 / 0.2); color: var(--warn); }
+.reset-btn { align-self: flex-end; white-space: nowrap; }
 .src-badge.project { background: oklch(0.7 0.1 250 / 0.2); color: var(--info); }
 .link.danger { color: var(--danger); }
+
+/* ---- session-start notice: describeStart's one-liner, one option per line ---- */
+.chat-start { white-space: normal; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.chat-start-key { color: var(--text-faint); }
+.chat-start-val.off { color: var(--text-faint); }
+.chat-start-line.args .chat-start-val { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }

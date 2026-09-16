@@ -403,6 +403,44 @@ function QuestionPanel({ questions, qIndex, multiSel, onToggleMulti, onPick, onS
   )
 }
 
+/**
+ * Session-start notices (`describeStart` in main) are persisted as one `·`-separated line.
+ * Parse it back into labeled fields for a one-option-per-line rendering; any other info text
+ * returns null. A segment without a known `key:` prefix is glued onto the previous value
+ * (values themselves may contain " · ").
+ */
+const START_NOTICE_PREFIX = '🔄 Сесію запущено · '
+const START_NOTICE_KEYS = new Set(['модель', 'зусилля', 'режим', 'resume', 'MCP', 'профіль', 'args'])
+export function parseStartNotice(text: string): { key: string; value: string }[] | null {
+  if (!text.startsWith(START_NOTICE_PREFIX)) return null
+  const fields: { key: string; value: string }[] = []
+  for (const seg of text.slice(START_NOTICE_PREFIX.length).split(' · ')) {
+    const colon = seg.indexOf(': ')
+    const key = colon > 0 ? seg.slice(0, colon) : ''
+    if (START_NOTICE_KEYS.has(key)) fields.push({ key, value: seg.slice(colon + 2) })
+    else if (fields.length) fields[fields.length - 1].value += ` · ${seg}`
+    else return null
+  }
+  return fields.length ? fields : null
+}
+
+/** Values meaning "off / nothing set" — dimmed so the eye lands on real settings. */
+const START_OFF_VALUES = new Set(['немає', 'default', 'ні — нова розмова', 'стандартний ~/.claude'])
+
+function StartNoticeView({ fields }: { fields: { key: string; value: string }[] }): JSX.Element {
+  return (
+    <div className="chat-info chat-start">
+      <div className="chat-start-line"><span aria-hidden="true">🔄 </span><span>Сесію запущено</span></div>
+      {fields.map((f) => (
+        <div key={f.key} className={`chat-start-line${f.key === 'args' ? ' args' : ''}`}>
+          <span className="chat-start-key">{f.key}: </span>
+          <span className={`chat-start-val${START_OFF_VALUES.has(f.value) ? ' off' : ''}`}>{f.value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function ItemView({ item }: { item: ChatItem }): JSX.Element {
   const [open, setOpen] = useState(false)
   if (item.role === 'tool') {
@@ -419,7 +457,10 @@ function ItemView({ item }: { item: ChatItem }): JSX.Element {
       </div>
     )
   }
-  if (item.role === 'info') return <div className="chat-info">{item.text}</div>
+  if (item.role === 'info') {
+    const fields = parseStartNotice(item.text)
+    return fields ? <StartNoticeView fields={fields} /> : <div className="chat-info">{item.text}</div>
+  }
   if (item.role === 'user')
     return (
       <div className={'chat-msg user' + (item.answer ? ' answer' : '')}>
