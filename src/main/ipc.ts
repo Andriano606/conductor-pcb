@@ -22,8 +22,8 @@ export function registerIpc(win: BrowserWindow): void {
     reloadRules()
     return snapshot()
   })
-  ipcMain.handle('rules:saveUser', (_e, rule: Rule) => saveUserRule(rule))
-  ipcMain.handle('rules:deleteUser', (_e, code: string) => deleteUserRule(code))
+  ipcMain.handle('rules:saveUser', (_e, rule: Rule, projectId?: string) => saveUserRule(rule, projectId))
+  ipcMain.handle('rules:deleteUser', (_e, code: string, projectId?: string) => deleteUserRule(code, projectId))
   ipcMain.handle('rules:openFile', (_e, file: string) => shell.openPath(file))
   ipcMain.handle('rules:showDir', (_e, dir: string) => shell.openPath(dir))
 

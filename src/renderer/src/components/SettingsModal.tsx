@@ -29,6 +29,8 @@ export function SettingsModal(): JSX.Element | null {
   const errors = useStore((s) => s.errors)
   const setConfig = useStore((s) => s.setConfig)
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
+  const setGlobalRulesOpen = useStore((s) => s.setGlobalRulesOpen)
+  const globalRules = useStore((s) => s.globalRules)
   const reload = useStore((s) => s.reload)
   const [port, setPort] = useState(String(config?.api.port ?? 4817))
   const [exportPreview, setExportPreview] = useState<string>('')
@@ -73,6 +75,14 @@ export function SettingsModal(): JSX.Element | null {
 
         {section === 'rules' && <section>
           <h3>Правила</h3>
+          <div className="row">
+            <button className="btn primary" onClick={() => setGlobalRulesOpen(true)}>Глобальні правила…</button>
+            <span className="muted small">{globalRules.filter((r) => r.effective.enabled).length} з {globalRules.length} увімкнено для всіх проектів</span>
+          </div>
+          <p className="muted small">
+            Глобальні правила — типовий набір для кожного проекту: там вмикають/вимикають правила, задають пороги й імпортують нові.
+            У вкладці «Правила» кожен проект успадковує ці значення і може перекрити їх або додати власні правила лише для себе.
+          </p>
           <div className="row">
             <span className="lbl">Вбудовані</span>
             <code className="grow">{bundledDir}</code>

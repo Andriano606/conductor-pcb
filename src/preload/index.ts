@@ -12,8 +12,8 @@ const api = {
   getRules: (projectId?: string): Promise<RulesSnapshot> => ipcRenderer.invoke('rules:snapshot', projectId),
   setProjectOverride: (projectId: string, code: string, ov: RuleOverride | null): Promise<RulesSnapshot> => ipcRenderer.invoke('rules:setProjectOverride', projectId, code, ov),
   reloadRules: (): Promise<RulesSnapshot> => ipcRenderer.invoke('rules:reload'),
-  saveUserRule: (rule: Rule): Promise<string[]> => ipcRenderer.invoke('rules:saveUser', rule),
-  deleteUserRule: (code: string): Promise<boolean> => ipcRenderer.invoke('rules:deleteUser', code),
+  saveUserRule: (rule: Rule, projectId?: string): Promise<string[]> => ipcRenderer.invoke('rules:saveUser', rule, projectId),
+  deleteUserRule: (code: string, projectId?: string): Promise<boolean> => ipcRenderer.invoke('rules:deleteUser', code, projectId),
   openRuleFile: (file: string): Promise<string> => ipcRenderer.invoke('rules:openFile', file),
   showDir: (dir: string): Promise<string> => ipcRenderer.invoke('rules:showDir', dir),
   onRulesChanged: (fn: (s: RulesSnapshot) => void): (() => void) => {

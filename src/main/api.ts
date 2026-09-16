@@ -15,7 +15,7 @@ import { app } from 'electron'
  *   GET  /api/health                → { ok, version, rules }
  *   GET  /api/rules                 → EffectiveRule[]   (?enabled=1, ?category=power, ?project=<id> for that project's overrides)
  *   GET  /api/rules/:code           → EffectiveRule
- *   PUT  /api/rules/:code           → create/replace a *user* rule (body = Rule JSON)
+ *   PUT  /api/rules/:code           → create/replace a *user* rule (body = Rule JSON); ?project=<id> saves it for that project only
  *   DELETE /api/rules/:code         → delete a user rule
  *   GET  /api/config                → AppConfig
  *   PATCH /api/config               → merge a partial AppConfig (overrides, api, paths)
@@ -117,11 +117,11 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       if (method === 'PUT') {
         const body = (await readBody(req)) as Rule
         if (!body || typeof body !== 'object') return send(res, 400, { error: 'body must be a rule object' })
-        const problems = saveUserRule({ ...body, code })
-        return problems.length ? send(res, 422, { error: 'invalid rule', problems }) : send(res, 200, getRule(code))
+        const problems = saveUserRule({ ...body, code }, projectQ)
+        return problems.length ? send(res, 422, { error: 'invalid rule', problems }) : send(res, 200, getRule(code, projectQ))
       }
       if (method === 'DELETE') {
-        return deleteUserRule(code) ? send(res, 200, { deleted: code }) : send(res, 404, { error: 'no user rule with that code' })
+        return deleteUserRule(code, projectQ) ? send(res, 200, { deleted: code }) : send(res, 404, { error: 'no user rule with that code' })
       }
     }
     if (path === '/api/config') {

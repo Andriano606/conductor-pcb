@@ -37,9 +37,14 @@ Guidance for Claude Code when working in this repository follows.
    findings back. A rule file is the single source of truth: texts, params, diagrams **and the
    `check` block** (`{kernel, emits, args}`) that the Python rule engine (`pcbagent/engine.py`) runs.
    `params[].key` == `pcbagent.checks.CheckConfig` field; `check.kernel` == `Checker.check_<kernel>`.
-   Thresholds/enabled/severity can be overridden globally or **per project** (`PcbProject.ruleOverrides`;
-   the rules view has a «Пороги для» scope selector; the API takes `?project=<id>`).
-   New rules: the `kicad-pcb-rules` Claude config (skill `pcb-rule-author`, in `~/Documents/claude-configs`), or «Імпортувати правило» in the app (JSON + preview).
+   Two layers of scope, both persisted: **global** = bundled `rules/` + the user rules dir with `AppConfig.overrides`
+   (which rules apply to every project by default, edited in the big «Глобальні правила» window opened from
+   settings, `GlobalRulesModal`), and **per project** = the «Правила» tab, always scoped to the active project
+   (`store.ruleScope` is derived from `activeProjectId`): it inherits the global values, `PcbProject.ruleOverrides`
+   overrides them for that project only, and rules imported there are written to `<userData>/project-rules/<id>/`
+   (`Rule.source === 'project'`, merged by `rulesRepo.loadedRules(projectId)`). The API takes `?project=<id>` on
+   GET/PUT/DELETE. New rules: the `kicad-pcb-rules` Claude config (skill `pcb-rule-author`, in
+   `~/Documents/claude-configs`), or «Імпортувати правило» in the app (JSON + preview; `ImportRuleModal` gets its scope).
 
 UI strings are Ukrainian; code and comments English. Prerequisites: Node 20+, `claude` CLI on PATH,
 KiCad 10 (AppImage) with the API server enabled, the kicad-ai-layout venv.

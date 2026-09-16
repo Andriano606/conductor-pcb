@@ -1,31 +1,49 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync, unlinkSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, watch, writeFileSync, unlinkSync } from 'fs'
 import type { FSWatcher } from 'fs'
 import { join } from 'path'
-import type { EffectiveRule, Rule, RulesSnapshot } from '../shared/types'
+import type { EffectiveRule, Rule, RuleSource, RulesSnapshot } from '../shared/types'
 import { applyOverrides, sortRules, validateRule } from '../shared/rules'
 import { getConfig } from './store'
 
 /**
- * Rule files live in two places:
- *   bundled  — <app>/rules/*.json (shipped with the app, read-only)
- *   user     — config.userRulesDir/*.json (editable; same code overrides the bundled one)
- * Both directories are watched; any change re-reads everything and notifies listeners.
+ * Rule files live in three places:
+ *  - the bundled `rules/` dir (ships with the app),
+ *  - the global user rules dir (`config.userRulesDir`): rules for every project, a file with
+ *    the same code as a bundled one replaces it,
+ *  - per-project dirs under `<userData>/project-rules/<projectId>/`: rules imported into one
+ *    project only. They are merged on top of the global library for that project's scope.
+ * Which rules are *enabled* is a separate layer: global overrides (`config.overrides`, the
+ * defaults for all projects) and per-project overrides (`PcbProject.ruleOverrides`).
  */
 
-let cache: { rules: Rule[]; errors: { file: string; message: string }[] } = { rules: [], errors: [] }
+type Loaded = { rules: Rule[]; errors: { file: string; message: string }[] }
+
+let cache: Loaded = { rules: [], errors: [] }
+let projectCache = new Map<string, Loaded>()
 let watchers: FSWatcher[] = []
 let listeners: (() => void)[] = []
 let debounce: NodeJS.Timeout | null = null
+let projectRulesRootOverride: string | null = null
 
 export function bundledRulesDir(): string {
-  // Packaged: extraResources puts it next to the asar. Dev: repo root.
   const packaged = join(process.resourcesPath ?? '', 'rules')
   if (app.isPackaged && existsSync(packaged)) return packaged
   return join(app.getAppPath(), 'rules')
 }
 
-function readDir(dir: string, source: 'bundled' | 'user'): { rules: Rule[]; errors: { file: string; message: string }[] } {
+/** Root of the per-project rule dirs; tests point it elsewhere. */
+export function projectRulesRoot(): string {
+  return projectRulesRootOverride ?? join(app.getPath('userData'), 'project-rules')
+}
+export function setProjectRulesRoot(dir: string | null): void {
+  projectRulesRootOverride = dir
+}
+export function projectRulesDir(projectId: string): string {
+  return join(projectRulesRoot(), projectId)
+}
+
+function readDir(dir: string, source: RuleSource): Loaded {
   const rules: Rule[] = []
   const errors: { file: string; message: string }[] = []
   if (!existsSync(dir)) return { rules, errors }
@@ -48,6 +66,23 @@ function readDir(dir: string, source: 'bundled' | 'user'): { rules: Rule[]; erro
   return { rules, errors }
 }
 
+function readProjectDirs(): Map<string, Loaded> {
+  const root = projectRulesRoot()
+  const out = new Map<string, Loaded>()
+  if (!existsSync(root)) return out
+  for (const id of readdirSync(root)) {
+    const dir = join(root, id)
+    try {
+      if (!statSync(dir).isDirectory()) continue
+    } catch {
+      continue
+    }
+    const loaded = readDir(dir, 'project')
+    if (loaded.rules.length || loaded.errors.length) out.set(id, loaded)
+  }
+  return out
+}
+
 export function reloadRules(): void {
   const cfg = getConfig()
   const b = readDir(bundledRulesDir(), 'bundled')
@@ -56,14 +91,25 @@ export function reloadRules(): void {
   for (const r of b.rules) byCode.set(r.code, r)
   for (const r of u.rules) byCode.set(r.code, r) // user file with the same code wins
   cache = { rules: sortRules([...byCode.values()]), errors: [...b.errors, ...u.errors] }
+  projectCache = readProjectDirs()
   for (const l of listeners) l()
 }
 
-/** Effective rules: global overrides, plus the project's own when `projectId` is given. */
+/** Global rules (bundled + user) plus, for a project, its own rules (same code: project wins). */
+export function loadedRules(projectId?: string): Rule[] {
+  const own = projectId ? projectCache.get(projectId) : undefined
+  if (!own?.rules.length) return cache.rules
+  const byCode = new Map<string, Rule>()
+  for (const r of cache.rules) byCode.set(r.code, r)
+  for (const r of own.rules) byCode.set(r.code, r)
+  return sortRules([...byCode.values()])
+}
+
+/** Effective rules: global overrides, plus the project's own rules and overrides when `projectId` is given. */
 export function getRules(projectId?: string): EffectiveRule[] {
   const cfg = getConfig()
   const proj = projectId ? cfg.projects.find((p) => p.id === projectId) : undefined
-  return applyOverrides(cache.rules, cfg.overrides, proj?.ruleOverrides)
+  return applyOverrides(loadedRules(projectId), cfg.overrides, proj?.ruleOverrides)
 }
 
 export function getRule(code: string, projectId?: string): EffectiveRule | undefined {
@@ -71,14 +117,24 @@ export function getRule(code: string, projectId?: string): EffectiveRule | undef
 }
 
 export function snapshot(projectId?: string): RulesSnapshot {
-  return { rules: getRules(projectId), errors: cache.errors, bundledDir: bundledRulesDir(), userRulesDir: getConfig().userRulesDir }
+  const errors = [...cache.errors, ...(projectId ? (projectCache.get(projectId)?.errors ?? []) : [])]
+  return {
+    rules: getRules(projectId),
+    errors,
+    bundledDir: bundledRulesDir(),
+    userRulesDir: getConfig().userRulesDir,
+    ...(projectId ? { projectId, projectRulesDir: projectRulesDir(projectId) } : {})
+  }
 }
 
-/** Write (create or replace) a user rule file. Returns validation problems if any. */
-export function saveUserRule(rule: Rule): string[] {
+/**
+ * Write (create or replace) a rule file: into the global user rules dir, or, with `projectId`,
+ * into that project's own dir. Returns validation problems if any.
+ */
+export function saveUserRule(rule: Rule, projectId?: string): string[] {
   const problems = validateRule(rule)
   if (problems.length) return problems
-  const dir = getConfig().userRulesDir
+  const dir = projectId ? projectRulesDir(projectId) : getConfig().userRulesDir
   mkdirSync(dir, { recursive: true })
   const { source: _s, file: _f, ...clean } = rule
   writeFileSync(join(dir, `${rule.code}.json`), JSON.stringify(clean, null, 2))
@@ -86,12 +142,22 @@ export function saveUserRule(rule: Rule): string[] {
   return []
 }
 
-export function deleteUserRule(code: string): boolean {
-  const r = cache.rules.find((x) => x.code === code && x.source === 'user')
+/** Delete a user rule file (global), or with `projectId` that project's own copy of the rule. */
+export function deleteUserRule(code: string, projectId?: string): boolean {
+  const pool = projectId ? (projectCache.get(projectId)?.rules ?? []) : cache.rules
+  const r = pool.find((x) => x.code === code && x.source === (projectId ? 'project' : 'user'))
   if (!r?.file) return false
   unlinkSync(r.file)
   reloadRules()
   return true
+}
+
+/** Remove a deleted project's rules dir. */
+export function deleteProjectRules(projectId: string): void {
+  const dir = projectRulesDir(projectId)
+  if (!existsSync(dir)) return
+  rmSync(dir, { recursive: true, force: true })
+  reloadRules()
 }
 
 export function onRulesChanged(fn: () => void): () => void {
@@ -103,8 +169,12 @@ export function onRulesChanged(fn: () => void): () => void {
 
 export function startWatching(): void {
   stopWatching()
-  const dirs = [bundledRulesDir(), getConfig().userRulesDir]
-  for (const dir of dirs) {
+  const dirs: { dir: string; recursive: boolean }[] = [
+    { dir: bundledRulesDir(), recursive: false },
+    { dir: getConfig().userRulesDir, recursive: false },
+    { dir: projectRulesRoot(), recursive: true }
+  ]
+  for (const { dir, recursive } of dirs) {
     if (!existsSync(dir)) {
       try {
         mkdirSync(dir, { recursive: true })
@@ -113,7 +183,7 @@ export function startWatching(): void {
       }
     }
     try {
-      const w = watch(dir, { persistent: false }, () => {
+      const w = watch(dir, { persistent: false, recursive }, () => {
         if (debounce) clearTimeout(debounce)
         debounce = setTimeout(reloadRules, 150)
       })

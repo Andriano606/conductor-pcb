@@ -121,10 +121,16 @@ export interface Rule {
   examples: { bad: Scene; good: Scene }
   /** Default enabled state; the user config can override. */
   enabled: boolean
-  /** Where this rule was loaded from (filled by the loader, not stored in the file). */
-  source?: 'bundled' | 'user'
+  /**
+   * Where this rule was loaded from (filled by the loader, not stored in the file):
+   * `bundled` ships with the app, `user` is the global user rules dir, `project` is a rule
+   * imported into one project only (`<userData>/project-rules/<projectId>/`).
+   */
+  source?: RuleSource
   file?: string
 }
+
+export type RuleSource = 'bundled' | 'user' | 'project'
 
 /** Per-rule user overrides persisted in the config. */
 export interface RuleOverride {
@@ -220,6 +226,10 @@ export interface RulesSnapshot {
   errors: { file: string; message: string }[]
   bundledDir: string
   userRulesDir: string
+  /** Scope the snapshot was taken for: a project id, or undefined for the global library. */
+  projectId?: string
+  /** That project's own rules dir (only with `projectId`). */
+  projectRulesDir?: string
 }
 
 // ---------------------------------------------------------------- Conductor PCB: projects + chat

@@ -7,13 +7,19 @@ import { BoardDiagram } from './BoardDiagram'
 
 /**
  * Import a rule from JSON (pasted or picked from a file): validate, preview exactly as the
- * rule card will look (diagrams, params, kernel), then save into the user rules dir.
+ * rule card will look (diagrams, params, kernel), then save it. `scope` 'global' writes into
+ * the user rules dir (all projects); a project id writes into that project's own rules dir.
  */
-export function ImportRuleModal(): JSX.Element {
-  const setImportOpen = useStore((s) => s.setImportOpen)
-  const rules = useStore((s) => s.rules)
+export function ImportRuleModal({ scope }: { scope: string }): JSX.Element {
+  const setImportScope = useStore((s) => s.setImportScope)
+  const setImportOpen = (open: boolean): void => setImportScope(open ? scope : null)
+  const rulesScoped = useStore((s) => s.rules)
+  const globalRules = useStore((s) => s.globalRules)
+  const projects = useStore((s) => s.projects)
+  const rules = scope === 'global' ? globalRules : rulesScoped
+  const scopeProject = projects.find((p) => p.id === scope) ?? null
   const select = useStore((s) => s.select)
-  const reload = useStore((s) => s.reload)
+  const refreshRules = useStore((s) => s.refreshRules)
   const [text, setText] = useState('')
   const [fileName, setFileName] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -25,7 +31,7 @@ export function ImportRuleModal(): JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [setImportOpen])
+  }, [setImportScope, scope])
 
   const parsed = useMemo<{ rule: Rule | null; problems: string[] }>(() => {
     if (!text.trim()) return { rule: null, problems: [] }
@@ -50,14 +56,14 @@ export function ImportRuleModal(): JSX.Element {
   const save = async (): Promise<void> => {
     if (!parsed.rule) return
     setSaving(true)
-    const problems = await window.api.saveUserRule(parsed.rule)
+    const problems = await window.api.saveUserRule(parsed.rule, scope === 'global' ? undefined : scope)
     setSaving(false)
     if (problems.length) {
       setSaveErrors(problems)
       return
     }
-    await reload()
-    select(parsed.rule.code)
+    await refreshRules()
+    if (scope !== 'global') select(parsed.rule.code)
     setImportOpen(false)
   }
 
@@ -66,7 +72,7 @@ export function ImportRuleModal(): JSX.Element {
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setImportOpen(false)}>
       <div className="modal wide" role="dialog" aria-label="Імпорт правила">
         <header>
-          <h2>Імпортувати правило</h2>
+          <h2>{scopeProject ? `Імпортувати правило для проекту ${scopeProject.name}` : 'Імпортувати глобальне правило'}</h2>
           <button className="icon-btn" onClick={() => setImportOpen(false)} aria-label="Закрити">✕</button>
         </header>
         <div className="import-grid">
@@ -92,7 +98,7 @@ export function ImportRuleModal(): JSX.Element {
               </ul>
             )}
             <p className="muted small">
-              Формат описано в <code>schema/rule.schema.json</code>; конфіг Claude <code>kicad-pcb-rules</code> (скіл pcb-rule-author) вміє писати такі файли. Правило збережеться в папку користувацьких правил.
+              Формат описано в <code>schema/rule.schema.json</code>; конфіг Claude <code>kicad-pcb-rules</code> (скіл pcb-rule-author) вміє писати такі файли. {scopeProject ? 'Правило збережеться лише для цього проекту і не зʼявиться в інших.' : 'Правило збережеться в папку користувацьких правил і діятиме для всіх проектів.'}
             </p>
           </section>
           <section className="import-preview">
@@ -106,7 +112,7 @@ export function ImportRuleModal(): JSX.Element {
                   <span className="sep">/</span>
                   <code>{r.code}</code>
                   <span className={`sev-badge ${r.severity}`}>{SEVERITY_LABEL[r.severity]}</span>
-                  {exists && <span className="err-badge">замінить {exists.source === 'user' ? 'користувацьке' : 'вбудоване'} правило з тим самим кодом</span>}
+                  {exists && <span className="err-badge">{scopeProject && exists.source !== 'project' ? 'перекриє в цьому проекті' : 'замінить'} {exists.source === 'user' ? 'користувацьке' : exists.source === 'project' ? 'проектне' : 'вбудоване'} правило з тим самим кодом</span>}
                 </div>
                 <h1>{r.title}</h1>
                 <p className="summary">{r.summary}</p>

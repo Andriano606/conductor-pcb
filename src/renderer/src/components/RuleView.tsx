@@ -11,16 +11,33 @@ import { Toggle } from './Toggle'
 
 const ENGINE_LABEL = { pcbagent: 'pcbagent (наш перевіряч)', 'kicad-drc': 'KiCad DRC', manual: 'вручну' }
 
-export function RuleView({ rule }: { rule: EffectiveRule }): JSX.Element {
-  const setOverride = useStore((s) => s.setOverride)
+/**
+ * One rule's card. `scope` is where its toggles/params are written: 'global' (defaults for all
+ * projects) or a project id; defaults to the store's `ruleScope` (the «Правила» tab).
+ */
+export function RuleView({ rule, scope }: { rule: EffectiveRule; scope?: string }): JSX.Element {
+  const storeScope = useStore((s) => s.ruleScope)
+  const ruleScope = scope ?? storeScope
+  const setOverrideStore = useStore((s) => s.setOverride)
+  const resetOverride = useStore((s) => s.resetOverride)
+  const deleteRule = useStore((s) => s.deleteRule)
+  const askConfirm = useStore((s) => s.askConfirm)
   const report = useStore((s) => s.report)
   const config = useStore((s) => s.config)
-  const ruleScope = useStore((s) => s.ruleScope)
   const projects = useStore((s) => s.projects)
   const [showJson, setShowJson] = useState(false)
   const hits = report?.findings.filter((f) => f.code === rule.code) ?? []
   const scopeProject = ruleScope === 'global' ? null : projects.find((p) => p.id === ruleScope)
+  const projectOverride = scopeProject?.ruleOverrides?.[rule.code]
+  const hasProjectOverride = !!projectOverride && Object.keys(projectOverride).some((k) => k === 'params' ? Object.keys(projectOverride.params ?? {}).length > 0 : true)
   const cat = CATEGORIES.find((c) => c.id === rule.category)?.label ?? rule.category
+  const setOverride = (code: string, ov: Parameters<typeof setOverrideStore>[1]): Promise<void> => setOverrideStore(code, ov, ruleScope)
+  const deletable = rule.source === 'project' ? (ruleScope !== 'global' ? ruleScope : null) : rule.source === 'user' ? 'global' : null
+  const remove = async (): Promise<void> => {
+    if (!deletable) return
+    const what = rule.source === 'project' ? 'з цього проекту' : 'з користувацьких правил (для всіх проектів)'
+    if (await askConfirm(`Видалити правило ${rule.code} ${what}? Файл буде стерто.`)) await deleteRule(rule.code, deletable)
+  }
 
   return (
     <article className="rule">
@@ -31,6 +48,7 @@ export function RuleView({ rule }: { rule: EffectiveRule }): JSX.Element {
             <span className="sep">/</span>
             <code>{rule.code}</code>
             {rule.source === 'user' && <span className="src-badge">користувацьке</span>}
+            {rule.source === 'project' && <span className="src-badge project">лише цей проект</span>}
           </div>
           <h1>{rule.title}</h1>
           <p className="summary">{rule.summary}</p>
@@ -50,7 +68,11 @@ export function RuleView({ rule }: { rule: EffectiveRule }): JSX.Element {
             <span>Увімкнено</span>
             <Toggle checked={rule.effective.enabled} onChange={(v) => void setOverride(rule.code, { enabled: v })} label="Увімкнено" />
           </label>
-          {scopeProject && <span className="scope-badge" title="Зміни діють тільки для цього проекту">проект: {scopeProject.name}</span>}
+          {scopeProject && (
+            hasProjectOverride
+              ? <button className="scope-badge changed" title="Це правило змінено для проекту. Натисніть, щоб повернути глобальні налаштування" onClick={() => void resetOverride(rule.code, ruleScope)}>змінено для {scopeProject.name} · скинути</button>
+              : <span className="scope-badge" title="Правило успадковує глобальні налаштування; зміни тут діятимуть лише для цього проекту">як у глобальних</span>
+          )}
         </div>
       </header>
 
@@ -70,7 +92,7 @@ export function RuleView({ rule }: { rule: EffectiveRule }): JSX.Element {
         </section>
         <aside className="meta">
           <h3>Параметри</h3>
-          <ParamsTable rule={rule} />
+          <ParamsTable rule={rule} scope={ruleScope} />
           <h3>Перевіряч</h3>
           <dl>
             <dt>Рушій</dt>
@@ -162,6 +184,11 @@ export function RuleView({ rule }: { rule: EffectiveRule }): JSX.Element {
             <button className="link" onClick={() => window.api.copyText(JSON.stringify(stripLoaderFields(rule), null, 2))}>
               копіювати JSON
             </button>
+            {deletable && (
+              <button className="link danger" onClick={() => void remove()}>
+                видалити правило
+              </button>
+            )}
           </div>
           {showJson && <pre className="json">{JSON.stringify(stripLoaderFields(rule), null, 2)}</pre>}
         </aside>

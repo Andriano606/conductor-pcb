@@ -16,12 +16,22 @@ interface State {
   category: Category | 'all'
   onlyEnabled: boolean
   settingsOpen: boolean
-  importOpen: boolean
+  /** The import modal's target: 'global' (user rules dir), a project id, or null when closed. */
+  importScope: string | null
+  /** The big global-rules window (opened from settings). */
+  globalRulesOpen: boolean
   loaded: boolean
   // ---- Conductor PCB
   view: 'chat' | 'rules'
-  /** Whose thresholds the rules view edits: 'global' or a project id. */
+  /**
+   * Whose rules the «Правила» tab shows and edits: the active project's id, or 'global' when
+   * there is no project. Derived from `config.activeProjectId` by `refreshRules`.
+   */
   ruleScope: string
+  /** The global library (bundled + user rules with the global overrides), for the global-rules window. */
+  globalRules: EffectiveRule[]
+  /** The active project's own rules dir (from the scoped snapshot). */
+  projectRulesDir: string
   projects: PcbProject[]
   kicad: Record<string, KicadStatus>
   checking: Record<string, boolean>
@@ -42,14 +52,19 @@ interface State {
   setCategory: (c: Category | 'all') => void
   setOnlyEnabled: (v: boolean) => void
   setSettingsOpen: (v: boolean) => void
-  setImportOpen: (v: boolean) => void
-  setOverride: (code: string, ov: RuleOverride) => Promise<void>
-  resetOverride: (code: string) => Promise<void>
+  setImportScope: (scope: string | null) => void
+  setGlobalRulesOpen: (v: boolean) => void
+  /** Change enabled/severity/params of a rule in `scope` (default: the current `ruleScope`). */
+  setOverride: (code: string, ov: RuleOverride, scope?: string) => Promise<void>
+  resetOverride: (code: string, scope?: string) => Promise<void>
+  /** Delete a user rule file (scope 'global') or a project's own rule (scope = project id). */
+  deleteRule: (code: string, scope: string) => Promise<boolean>
+  /** Re-fetch the scoped rules for the active project and the global library. */
+  refreshRules: () => Promise<void>
   setConfig: (patch: Partial<AppConfig>) => Promise<void>
   setReport: (r: FindingsReport | null) => void
   reload: () => Promise<void>
   setView: (v: 'chat' | 'rules') => void
-  setRuleScope: (scope: string) => Promise<void>
   setProjects: (p: PcbProject[]) => void
   addProject: () => Promise<void>
   deleteProject: (id: string) => Promise<void>
@@ -96,10 +111,13 @@ export const useStore = create<State>((set, get) => ({
   category: 'all',
   onlyEnabled: false,
   settingsOpen: false,
-  importOpen: false,
+  importScope: null,
+  globalRulesOpen: false,
   loaded: false,
   view: (localStorage.getItem('conductor-pcb.view') as 'chat' | 'rules') || 'chat',
   ruleScope: 'global',
+  globalRules: [],
+  projectRulesDir: '',
   projects: [],
   kicad: {},
   checking: {},
@@ -120,19 +138,29 @@ export const useStore = create<State>((set, get) => ({
     set({ activeSessionByProject })
   },
   load: async () => {
-    const [snap, config, configPath, api, report, projects] = await Promise.all([
-      window.api.getRules(),
+    const [config, configPath, api, report, projects] = await Promise.all([
       window.api.getConfig(),
       window.api.configPath(),
       window.api.apiStatus(),
       window.api.lastFindings(),
       window.api.listProjects()
     ])
+    const scope = scopeFor(config, projects)
+    const [snap, global] = await Promise.all([window.api.getRules(scope === 'global' ? undefined : scope), window.api.getRules()])
     const selected = config.lastRuleCode && snap.rules.some((r) => r.code === config.lastRuleCode)
       ? config.lastRuleCode
       : (snap.rules[0]?.code ?? null)
-    set({ ...snapToState(snap), config, configPath, api, report, selected, projects, loaded: true,
+    set({ ...snapToState(snap), globalRules: global.rules, ruleScope: scope, config, configPath, api, report, selected, projects, loaded: true,
       customPrompts: config.customPrompts ?? [], claudeProfiles: config.claudeProfiles ?? [], usage: config.lastUsage ?? [] })
+  },
+  refreshRules: async () => {
+    const { config, projects } = get()
+    if (!config) return
+    const scope = scopeFor(config, projects)
+    const [snap, global] = await Promise.all([window.api.getRules(scope === 'global' ? undefined : scope), window.api.getRules()])
+    const { selected } = get()
+    const stillThere = selected && snap.rules.some((r) => r.code === selected)
+    set({ ...snapToState(snap), globalRules: global.rules, ruleScope: scope, selected: stillThere ? selected : (snap.rules[0]?.code ?? null) })
   },
   createCustomPrompt: async (title, content) => {
     await window.api.addPrompt(title, content)
@@ -188,15 +216,18 @@ export const useStore = create<State>((set, get) => ({
     }
     const [projects, config] = await Promise.all([window.api.listProjects(), window.api.getConfig()])
     set({ projects, config, view: 'chat' })
+    await get().refreshRules()
   },
   deleteProject: async (id) => {
     await window.api.deleteProject(id)
     const [projects, config] = await Promise.all([window.api.listProjects(), window.api.getConfig()])
     set({ projects, config })
+    await get().refreshRules()
   },
   selectProject: async (id) => {
     const config = await window.api.selectProject(id)
     set({ config, view: 'chat' })
+    await get().refreshRules()
   },
   refreshKicad: async (id) => {
     const st = await window.api.kicadStatus(id)
@@ -217,9 +248,10 @@ export const useStore = create<State>((set, get) => ({
   },
   closeCheckResult: () => set({ checkResult: null }),
   applySnapshot: (s) => {
-    const { selected } = get()
-    const stillThere = selected && s.rules.some((r) => r.code === selected)
-    set({ ...snapToState(s), selected: stillThere ? selected : (s.rules[0]?.code ?? null) })
+    // The main process pushes the global snapshot on any file change; the tab shows the
+    // active project's scope, so re-fetch that and keep the pushed one as the global library.
+    set({ globalRules: s.rules, errors: s.errors, bundledDir: s.bundledDir, userRulesDir: s.userRulesDir })
+    void get().refreshRules()
   },
   select: (code) => {
     set({ selected: code })
@@ -229,56 +261,59 @@ export const useStore = create<State>((set, get) => ({
   setCategory: (category) => set({ category }),
   setOnlyEnabled: (onlyEnabled) => set({ onlyEnabled }),
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
-  setImportOpen: (importOpen) => set({ importOpen }),
-  setOverride: async (code, ov) => {
-    const scope = get().ruleScope
+  setImportScope: (importScope) => set({ importScope }),
+  setGlobalRulesOpen: (globalRulesOpen) => set({ globalRulesOpen }),
+  setOverride: async (code, ov, scope = get().ruleScope) => {
     if (scope !== 'global') {
-      const snap = await window.api.setProjectOverride(scope, code, ov)
+      await window.api.setProjectOverride(scope, code, ov)
       const config = await window.api.getConfig()
-      set({ config, projects: config.projects, ...snapToState(snap) })
-      return
+      set({ config, projects: config.projects })
+    } else {
+      const config = await window.api.setConfig({ overrides: { [code]: ov } })
+      set({ config })
     }
-    const config = await window.api.setConfig({ overrides: { [code]: ov } })
-    const snap = await window.api.getRules()
-    set({ config, ...snapToState(snap) })
+    await get().refreshRules()
   },
-  resetOverride: async (code) => {
-    const scope = get().ruleScope
+  resetOverride: async (code, scope = get().ruleScope) => {
     if (scope !== 'global') {
-      const snap = await window.api.setProjectOverride(scope, code, null)
+      await window.api.setProjectOverride(scope, code, null)
       const config = await window.api.getConfig()
-      set({ config, projects: config.projects, ...snapToState(snap) })
-      return
+      set({ config, projects: config.projects })
+    } else {
+      const cfg = get().config
+      if (!cfg) return
+      const overrides = { ...cfg.overrides }
+      delete overrides[code]
+      const config = await window.api.setConfig({ overrides: { [code]: null as unknown as RuleOverride } })
+      set({ config: { ...config, overrides } })
     }
-    const cfg = get().config
-    if (!cfg) return
-    const overrides = { ...cfg.overrides }
-    delete overrides[code]
-    const config = await window.api.setConfig({ overrides: { [code]: null as unknown as RuleOverride } })
-    const snap = await window.api.getRules()
-    set({ config: { ...config, overrides }, ...snapToState(snap) })
+    await get().refreshRules()
   },
-  setRuleScope: async (ruleScope) => {
-    const snap = await window.api.getRules(ruleScope === 'global' ? undefined : ruleScope)
-    set({ ruleScope, ...snapToState(snap) })
+  deleteRule: async (code, scope) => {
+    const ok = await window.api.deleteUserRule(code, scope === 'global' ? undefined : scope)
+    if (ok) await get().refreshRules()
+    return ok
   },
   setConfig: async (patch) => {
     const config = await window.api.setConfig(patch)
-    const scope = get().ruleScope
-    const snap = await window.api.getRules(scope === 'global' ? undefined : scope)
-    set({ config, ...snapToState(snap) })
+    set({ config })
+    await get().refreshRules()
   },
   setReport: (report) => set({ report }),
   reload: async () => {
     await window.api.reloadRules()
-    const scope = get().ruleScope
-    const snap = await window.api.getRules(scope === 'global' ? undefined : scope)
-    get().applySnapshot(snap)
+    await get().refreshRules()
   }
 }))
 
-function snapToState(s: RulesSnapshot): Pick<State, 'rules' | 'errors' | 'bundledDir' | 'userRulesDir'> {
-  return { rules: s.rules, errors: s.errors, bundledDir: s.bundledDir, userRulesDir: s.userRulesDir }
+/** The rules scope the «Правила» tab shows: the active project (or the first one), else global. */
+export function scopeFor(config: Pick<AppConfig, 'activeProjectId'> | null, projects: PcbProject[]): string {
+  const p = projects.find((x) => x.id === config?.activeProjectId) ?? projects[0]
+  return p ? p.id : 'global'
+}
+
+function snapToState(s: RulesSnapshot): Pick<State, 'rules' | 'errors' | 'bundledDir' | 'userRulesDir' | 'projectRulesDir'> {
+  return { rules: s.rules, errors: s.errors, bundledDir: s.bundledDir, userRulesDir: s.userRulesDir, projectRulesDir: s.projectRulesDir ?? '' }
 }
 
 export function severityRank(s: Severity): number {

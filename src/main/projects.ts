@@ -6,7 +6,7 @@ import { join } from 'path'
 import type { ChatSession, CheckResult, FindingsReport, PcbProject, KicadStatus } from '../shared/types'
 import { addSession, findSession, projectFromFiles, removeProject, removeSession, renameSession, updateSession, upsertProject } from '../shared/projects'
 import { getConfig, setConfig } from './store'
-import { bundledRulesDir } from './rulesRepo'
+import { bundledRulesDir, deleteProjectRules } from './rulesRepo'
 import { buildMergedConfig } from './configMerge'
 import type { ClaudeProfile } from '../shared/types'
 import { buildEnv } from './env'
@@ -24,6 +24,7 @@ export function addProjectFromDir(dir: string): PcbProject | null {
 
 export function deleteProject(id: string): void {
   for (const s of getProject(id)?.sessions ?? []) deleteChatHistory(s.id)
+  deleteProjectRules(id)
   const cfg = getConfig()
   const projects = removeProject(cfg.projects, id)
   setConfig({ projects, activeProjectId: cfg.activeProjectId === id ? projects[0]?.id : cfg.activeProjectId })

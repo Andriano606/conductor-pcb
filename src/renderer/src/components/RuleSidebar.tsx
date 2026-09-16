@@ -21,8 +21,9 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
   const report = useStore((s) => s.report)
   const projects = useStore((s) => s.projects)
   const ruleScope = useStore((s) => s.ruleScope)
-  const setRuleScope = useStore((s) => s.setRuleScope)
-  const setImportOpen = useStore((s) => s.setImportOpen)
+  const setImportScope = useStore((s) => s.setImportScope)
+  const setGlobalRulesOpen = useStore((s) => s.setGlobalRulesOpen)
+  const scopeProject = projects.find((p) => p.id === ruleScope) ?? null
 
   const hits = new Map<string, number>()
   if (report) for (const f of report.findings) hits.set(f.code, (hits.get(f.code) ?? 0) + 1)
@@ -41,22 +42,16 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
           </span>
         </div>
         <div className="row-tight">
-          <button className="icon-btn" title="Імпортувати правило з JSON" onClick={() => setImportOpen(true)} aria-label="Імпортувати правило">⤓</button>
+          <button className="icon-btn" title={scopeProject ? `Імпортувати правило з JSON лише для проекту ${scopeProject.name}` : 'Імпортувати правило з JSON'} onClick={() => setImportScope(ruleScope)} aria-label="Імпортувати правило">⤓</button>
           <button className="icon-btn" title="Налаштування" onClick={() => setSettingsOpen(true)} aria-label="Налаштування">⚙</button>
         </div>
       </div>
       <div className="sidebar-tools">
-        <label className="scope">
-          <span>Пороги для</span>
-          <select value={ruleScope} onChange={(e) => void setRuleScope(e.target.value)} aria-label="Область правил">
-            <option value="global">усіх проектів</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="scope" title={scopeProject ? 'Увімкнені правила й пороги тут діють лише для цього проекту; типові значення — з глобальних правил' : 'Немає проекту: показано глобальні правила'}>
+          <span>Проект:</span>
+          <b className="scope-name">{scopeProject ? scopeProject.name : 'немає (глобальні)'}</b>
+          <button className="link" onClick={() => setGlobalRulesOpen(true)}>глобальні…</button>
+        </div>
         <input
           className="search"
           placeholder="Пошук: код, назва, тег…"
@@ -96,7 +91,8 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
                   <span className="rule-row-code">{r.code}</span>
                 </span>
                 {hits.has(r.code) && <span className="hit-badge" title="Знахідок в останньому звіті">{hits.get(r.code)}</span>}
-                {r.source === 'user' && <span className="src-badge" title="Правило користувача">U</span>}
+                {r.source === 'user' && <span className="src-badge" title="Правило користувача (для всіх проектів)">U</span>}
+                {r.source === 'project' && <span className="src-badge project" title="Правило лише цього проекту">P</span>}
               </button>
             ))}
           </section>

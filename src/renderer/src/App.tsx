@@ -5,6 +5,7 @@ import { RuleSidebar } from './components/RuleSidebar'
 import { RuleView } from './components/RuleView'
 import { SettingsModal } from './components/SettingsModal'
 import { ImportRuleModal } from './components/ImportRuleModal'
+import { GlobalRulesModal } from './components/GlobalRulesModal'
 import { ConfirmModal } from './components/ConfirmModal'
 import { CheckReportModal } from './components/CheckReportModal'
 import { ProjectSidebar } from './components/ProjectSidebar'
@@ -24,7 +25,8 @@ export function App(): JSX.Element {
   const category = useStore((s) => s.category)
   const onlyEnabled = useStore((s) => s.onlyEnabled)
   const settingsOpen = useStore((s) => s.settingsOpen)
-  const importOpen = useStore((s) => s.importOpen)
+  const importScope = useStore((s) => s.importScope)
+  const globalRulesOpen = useStore((s) => s.globalRulesOpen)
   const view = useStore((s) => s.view)
   const projects = useStore((s) => s.projects)
   const activeId = useStore((s) => s.config?.activeProjectId)
@@ -37,8 +39,8 @@ export function App(): JSX.Element {
     const offFind = window.api.onFindings(setReport)
     const offApi = window.api.onApiStatus((api) => useStore.setState({ api }))
     const offChat = window.api.onChatEvent(applyEvent)
-    const offProj = window.api.onProjectsChanged(setProjects)
-    const offCfg = window.api.onConfigChanged((config) => useStore.setState({ config, projects: config.projects }))
+    const offProj = window.api.onProjectsChanged((p) => { setProjects(p); void useStore.getState().refreshRules() })
+    const offCfg = window.api.onConfigChanged((config) => { useStore.setState({ config, projects: config.projects }); void useStore.getState().refreshRules() })
     const offView = window.api.onSetView((v) => (v === ('settings' as string) ? useStore.getState().setSettingsOpen(true) : useStore.getState().setView(v)))
     const offUsage = window.api.onUsage((w) => useStore.getState().setUsage(w))
     return () => {
@@ -84,7 +86,8 @@ export function App(): JSX.Element {
         )}
       </div>
       {settingsOpen && <SettingsModal />}
-      {importOpen && <ImportRuleModal />}
+      {importScope !== null && <ImportRuleModal scope={importScope} />}
+      {globalRulesOpen && <GlobalRulesModal />}
       <CheckReportModal sessionId={session?.id ?? null} />
       <ConfirmModal />
     </div>

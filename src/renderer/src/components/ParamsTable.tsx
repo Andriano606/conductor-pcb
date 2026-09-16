@@ -3,8 +3,9 @@ import type { EffectiveRule } from '@shared/types'
 import { useStore } from '../store'
 import { Toggle } from './Toggle'
 
-export function ParamsTable({ rule }: { rule: EffectiveRule }): JSX.Element | null {
-  const setOverride = useStore((s) => s.setOverride)
+export function ParamsTable({ rule, scope }: { rule: EffectiveRule; scope?: string }): JSX.Element | null {
+  const setOverrideStore = useStore((s) => s.setOverride)
+  const setOverride = (code: string, ov: Parameters<typeof setOverrideStore>[1]): Promise<void> => setOverrideStore(code, ov, scope)
   const [draft, setDraft] = useState<Record<string, string>>({})
   useEffect(() => {
     const d: Record<string, string> = {}
