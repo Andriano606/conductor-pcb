@@ -63,31 +63,27 @@ describe('ChatView', () => {
     expect(screen.getByText('NRST')).toBeInTheDocument()
     expect(api.kicadStatus).toHaveBeenCalledWith('p1')
   })
-  it('keeps «Перевірити плату» disabled until KiCad with the board is running', async () => {
-    api.kicadStatus.mockResolvedValueOnce({ running: false, apiSocket: false })
+  it('shows the KiCad state and keeps «Перевірити плату» usable (closed boards are opened by the check itself)', async () => {
+    api.kicadStatus.mockResolvedValueOnce({ running: false, apiSocket: false, runningBoards: [] })
     render(<ChatView project={project} session={session} />)
     const btn = await screen.findByText('Перевірити плату')
     expect(await screen.findByText('KiCad не запущений')).toBeInTheDocument()
-    expect(btn).toBeDisabled()
-    useStore.setState({ kicad: { p1: { running: true, apiSocket: true } } })
+    expect(btn).toBeEnabled()
+    useStore.setState({ kicad: { p1: { running: true, apiSocket: true, runningBoards: ['/x/board/board.kicad_pcb'] } } })
     expect(await screen.findByText('KiCad відкритий')).toBeInTheDocument()
-    expect(screen.getByText('Перевірити плату')).toBeEnabled()
+    useStore.setState({ checking: { p1: true } })
+    expect(await screen.findByText('Перевіряю…')).toBeDisabled()
   })
-  it('runs the checker on click and hands the result to the report modal', async () => {
-    const report = { board: 'b.kicad_pcb', generated: 'g', summary: { error: 0, warning: 1, info: 0 }, findings: [] }
-    const ext = api as typeof api & { checkProject: ReturnType<typeof vi.fn>; listProjects: ReturnType<typeof vi.fn>; lastFindings: ReturnType<typeof vi.fn> }
-    ext.checkProject = vi.fn().mockResolvedValue({ ok: true, report, reportFile: '/x/board/pcb_report.md' })
-    ext.listProjects = vi.fn().mockResolvedValue([project])
-    ext.lastFindings = vi.fn().mockResolvedValue(report)
-    useStore.setState({ kicad: { p1: { running: true, apiSocket: true } }, checkResult: null, addError: null })
+  it('«Перевірити плату» re-scans the boards and opens the board picker', async () => {
+    const ext = api as typeof api & { listBoards: ReturnType<typeof vi.fn>; listProjects: ReturnType<typeof vi.fn> }
+    ext.listBoards = vi.fn().mockResolvedValue(['/x/board/board.kicad_pcb', '/x/board/sub/other.kicad_pcb'])
+    ext.listProjects = vi.fn().mockResolvedValue([{ ...project, boards: ['/x/board/board.kicad_pcb', '/x/board/sub/other.kicad_pcb'] }])
+    useStore.setState({ kicad: { p1: { running: true, apiSocket: true } }, checkModalProject: null })
     render(<ChatView project={project} session={session} />)
     fireEvent.click(await screen.findByText('Перевірити плату'))
-    expect(ext.checkProject).toHaveBeenCalledWith('p1')
-    await vi.waitFor(() => expect(useStore.getState().checkResult).toMatchObject({ projectId: 'p1', reportFile: '/x/board/pcb_report.md' }))
-    expect(useStore.getState().checking.p1).toBe(false)
-    ext.checkProject.mockResolvedValueOnce({ ok: false, error: 'KiCad API недоступний' })
-    fireEvent.click(screen.getByText('Перевірити плату'))
-    await vi.waitFor(() => expect(useStore.getState().addError).toBe('KiCad API недоступний'))
+    await vi.waitFor(() => expect(useStore.getState().checkModalProject).toBe('p1'))
+    expect(ext.listBoards).toHaveBeenCalledWith('p1')
+    expect(useStore.getState().projects[0].boards).toHaveLength(2)
   })
   it('renders the session-start notice one option per line', async () => {
     render(<ChatView project={project} session={session} />)

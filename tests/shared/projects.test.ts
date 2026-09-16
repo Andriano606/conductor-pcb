@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addSession, findSession, migrateSessions, projectFromFiles, removeProject, removeSession, renameSession, sessionLabel, updateSession, upsertProject } from '@shared/projects'
+import { addSession, findSession, isBoardFile, isSkippedDir, migrateSessions, projectFromFiles, reportStemFor, selectedBoards, removeProject, removeSession, renameSession, sessionLabel, updateSession, upsertProject } from '@shared/projects'
 
 describe('projectFromFiles', () => {
   it('derives name and files from a folder listing, ignoring backups', () => {
@@ -62,5 +62,24 @@ describe('chat sessions (tabs)', () => {
     const l4 = removeSession(l3, 'pa')
     expect(l4[0].sessions.map((s) => s.id)).toEqual(['s2'])
     expect(removeSession(l4, 's2')[0].sessions.map((s) => s.id)).toEqual(['s2'])
+  })
+})
+
+describe('boards of a project', () => {
+  it('filters board files and skipped dirs', () => {
+    expect(isBoardFile('a.kicad_pcb')).toBe(true)
+    expect(isBoardFile('a.kicad_pcb.backup')).toBe(false)
+    expect(isBoardFile('_autosave-a.kicad_pcb')).toBe(false)
+    expect(isBoardFile('a.kicad_sch')).toBe(false)
+    expect(isSkippedDir('proj-backups')).toBe(true)
+    expect(isSkippedDir('.git')).toBe(true)
+    expect(isSkippedDir('boards')).toBe(false)
+  })
+  it('selects every board unless switched off, and names report files per board', () => {
+    const p = { boardFile: '/d/a.kicad_pcb', boards: ['/d/a.kicad_pcb', '/d/sub/b.kicad_pcb'], checkBoards: { '/d/sub/b.kicad_pcb': false } }
+    expect(selectedBoards(p)).toEqual(['/d/a.kicad_pcb'])
+    expect(selectedBoards({ boardFile: '/d/a.kicad_pcb' })).toEqual(['/d/a.kicad_pcb'])
+    expect(reportStemFor('/d/a.kicad_pcb', ['/d/a.kicad_pcb'])).toBe('pcb_report')
+    expect(reportStemFor('/d/sub/b.kicad_pcb', p.boards)).toBe('pcb_report-b')
   })
 })

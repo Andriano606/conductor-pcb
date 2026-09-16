@@ -7,7 +7,7 @@ import { addClaudeProfile, addCustomPrompt, getConfig, getConfigPath, removeClau
 import { deleteUserRule, getRules, reloadRules, saveUserRule, snapshot, startWatching } from './rulesRepo'
 import { apiStatus, getLastReport, setLastReport, startApi } from './api'
 import type { ChatAnswer, PcbProject } from '../shared/types'
-import { addProjectFromDir, closeChatSession, createChatSession, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, renameChatSession, applyGlobalRulesToProject, runCheck, setProjectProfiles, setProjectRuleOverride, startSessionChat, updateProject } from './projects'
+import { addProjectFromDir, closeChatSession, createChatSession, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, renameChatSession, applyGlobalRulesToProject, refreshBoards, runChecks, setProjectProfiles, setProjectRuleOverride, startSessionChat, updateProject } from './projects'
 import { isClaudeConfigDir } from './configMerge'
 import { pollUsage, refreshUsageSoon } from './usagePoller'
 import { answerChat, attachChat, interruptChat, sendChatMessage, setChatParams } from './claudeChat'
@@ -92,12 +92,24 @@ export function registerIpc(win: BrowserWindow): void {
   })
   ipcMain.handle('projects:kicadStatus', (_e, id: string) => {
     const p = getProject(id)
-    return p ? kicadStatus(p) : { running: false, apiSocket: false }
+    return p ? kicadStatus(p) : { running: false, apiSocket: false, runningBoards: [] }
   })
-  ipcMain.handle('projects:check', async (_e, id: string) => {
+  ipcMain.handle('projects:boards', (_e, id: string) => {
     const p = getProject(id)
-    if (!p) return { ok: false, error: 'проект не знайдено' }
-    const r = await runCheck(p)
+    return p ? (refreshBoards(p).boards ?? []) : []
+  })
+  ipcMain.handle('projects:setCheckBoards', (_e, id: string, checkBoards: Record<string, boolean>) => updateProject(id, { checkBoards }))
+  ipcMain.handle('projects:openBoard', (_e, id: string, boardFile: string) => {
+    const p = getProject(id)
+    if (p) openInKicad(p, boardFile)
+    return !!p
+  })
+  ipcMain.handle('projects:checkBoards', async (_e, id: string, boards: string[]) => {
+    const p = getProject(id)
+    if (!p) return { projectId: id, boards: [] }
+    const r = await runChecks(refreshBoards(p), boards, (pr) => {
+      if (!win.isDestroyed()) win.webContents.send('check:progress', pr)
+    })
     win.webContents.send('projects:changed', getConfig().projects)
     return r
   })

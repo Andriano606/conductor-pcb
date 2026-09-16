@@ -28,7 +28,7 @@ export function ChatView({ project, session }: { project: PcbProject; session: C
   const pushInputHistory = useChatStore((s) => s.pushInputHistory)
   const kicad = useStore((s) => s.kicad[pid])
   const refreshKicad = useStore((s) => s.refreshKicad)
-  const runCheck = useStore((s) => s.runCheck)
+  const openCheckModal = useStore((s) => s.openCheckModal)
   const checking = useStore((s) => s.checking[pid])
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -251,10 +251,10 @@ export function ChatView({ project, session }: { project: PcbProject; session: C
         </div>
         <div className="chat-actions">
           <span className={'api-dot' + (kicad?.running ? ' on' : '')} title="KiCad pcbnew з цією платою" />
-          <span className="muted small">{kicad?.running ? 'KiCad відкритий' : 'KiCad не запущений'}</span>
+          <span className="muted small">{kicad?.running ? `KiCad відкритий${(kicad.runningBoards?.length ?? 0) > 1 ? ` (${kicad.runningBoards!.length} плати)` : ''}` : 'KiCad не запущений'}</span>
           <button className="btn subtle" onClick={() => void window.api.openKicad(pid)}>Відкрити в KiCad</button>
-          <button className="btn subtle" disabled={!!checking || !kicad?.running} title={kicad?.running ? 'Запустити перевіряч для відкритої плати' : 'Спочатку відкрийте плату в KiCad'}
-            onClick={() => void runCheck(pid)}>{checking ? 'Перевіряю…' : 'Перевірити плату'}</button>
+          <button className="btn subtle" disabled={!!checking} title="Вибрати плати проекту й запустити перевіряч (закриті плати відкриються в KiCad автоматично, якщо API вільний)"
+            onClick={() => void openCheckModal(pid)}>{checking ? 'Перевіряю…' : 'Перевірити плату'}</button>
         </div>
       </div>
       <div className="chat-scroll" ref={listRef}>

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AppConfig, CheckResult, RuleOverride, ChatAttachment, ChatAnswer, ChatSession, ClaudeProfile, CustomPrompt, EnvVar, UsageWindow, ChatEventPayload, ChatSnapshot, CheckerConfigExport, FindingsReport, KicadStatus, PcbProject, Rule, RulesSnapshot } from '../shared/types'
+import type { AppConfig, CheckProgress, MultiCheckResult, RuleOverride, ChatAttachment, ChatAnswer, ChatSession, ClaudeProfile, CustomPrompt, EnvVar, UsageWindow, ChatEventPayload, ChatSnapshot, CheckerConfigExport, FindingsReport, KicadStatus, PcbProject, Rule, RulesSnapshot } from '../shared/types'
 
 export interface ApiStatus {
   running: boolean
@@ -59,7 +59,15 @@ const api = {
   selectProject: (id: string): Promise<AppConfig> => ipcRenderer.invoke('projects:select', id),
   openKicad: (id: string): Promise<boolean> => ipcRenderer.invoke('projects:openKicad', id),
   kicadStatus: (id: string): Promise<KicadStatus> => ipcRenderer.invoke('projects:kicadStatus', id),
-  checkProject: (id: string): Promise<CheckResult> => ipcRenderer.invoke('projects:check', id),
+  listBoards: (id: string): Promise<string[]> => ipcRenderer.invoke('projects:boards', id),
+  setCheckBoards: (id: string, sel: Record<string, boolean>): Promise<PcbProject | undefined> => ipcRenderer.invoke('projects:setCheckBoards', id, sel),
+  openBoard: (id: string, boardFile: string): Promise<boolean> => ipcRenderer.invoke('projects:openBoard', id, boardFile),
+  checkBoards: (id: string, boards: string[]): Promise<MultiCheckResult> => ipcRenderer.invoke('projects:checkBoards', id, boards),
+  onCheckProgress: (fn: (p: CheckProgress) => void): (() => void) => {
+    const h = (_e: unknown, p: CheckProgress): void => fn(p)
+    ipcRenderer.on('check:progress', h)
+    return () => ipcRenderer.removeListener('check:progress', h)
+  },
   onProjectsChanged: (fn: (p: PcbProject[]) => void): (() => void) => {
     const h = (_e: unknown, p: PcbProject[]): void => fn(p)
     ipcRenderer.on('projects:changed', h)

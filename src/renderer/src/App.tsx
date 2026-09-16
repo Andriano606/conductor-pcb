@@ -8,6 +8,7 @@ import { ImportRuleModal } from './components/ImportRuleModal'
 import { GlobalRulesModal } from './components/GlobalRulesModal'
 import { ConfirmModal } from './components/ConfirmModal'
 import { CheckReportModal } from './components/CheckReportModal'
+import { CheckBoardsModal } from './components/CheckBoardsModal'
 import { ProjectSidebar } from './components/ProjectSidebar'
 import { TopBar } from './components/TopBar'
 import { ChatView } from './components/ChatView'
@@ -43,9 +44,11 @@ export function App(): JSX.Element {
     const offCfg = window.api.onConfigChanged((config) => { useStore.setState({ config, projects: config.projects }); void useStore.getState().refreshRules() })
     const offView = window.api.onSetView((v) => (v === ('settings' as string) ? useStore.getState().setSettingsOpen(true) : useStore.getState().setView(v)))
     const offUsage = window.api.onUsage((w) => useStore.getState().setUsage(w))
+    const offCheck = window.api.onCheckProgress((p) => useStore.getState().applyCheckProgress(p))
     return () => {
       offView()
       offUsage()
+      offCheck()
       offRules()
       offFind()
       offApi()
@@ -89,6 +92,7 @@ export function App(): JSX.Element {
       {settingsOpen && <SettingsModal />}
       {globalRulesOpen && <GlobalRulesModal />}
       {importScope !== null && <ImportRuleModal scope={importScope} />}
+      <CheckBoardsModal />
       <CheckReportModal sessionId={session?.id ?? null} />
       <ConfirmModal />
     </div>

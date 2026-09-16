@@ -30,7 +30,7 @@ describe('RuleView', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(rule.title)
     expect(screen.getByText('Погано')).toBeInTheDocument()
     expect(screen.getByText('Добре')).toBeInTheDocument()
-    expect(document.querySelectorAll('svg')).toHaveLength(2)
+    expect(document.querySelectorAll('svg').length - document.querySelectorAll('.param-reset svg').length).toBe(2) // the two diagrams
     expect(screen.getByDisplayValue('4')).toBeInTheDocument() // overridden param
     expect(screen.getByText(/Останній звіт: 1/)).toBeInTheDocument()
     expect(screen.getByText('C3 far')).toBeInTheDocument()

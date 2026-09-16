@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AppConfig, Category, CheckResult, ClaudeProfile, CustomPrompt, EffectiveRule, EnvVar, FindingsReport, KicadStatus, PcbProject, RuleOverride, RulesSnapshot, Severity, UsageWindow } from '@shared/types'
+import type { AppConfig, Category, CheckProgress, MultiCheckResult, ClaudeProfile, CustomPrompt, EffectiveRule, EnvVar, FindingsReport, KicadStatus, PcbProject, RuleOverride, RulesSnapshot, Severity, UsageWindow } from '@shared/types'
 import type { ApiStatus } from '../../preload'
 
 interface State {
@@ -35,8 +35,14 @@ interface State {
   projects: PcbProject[]
   kicad: Record<string, KicadStatus>
   checking: Record<string, boolean>
+  /** The board-picker modal of «Перевірити плату» (project id) or null. */
+  checkModalProject: string | null
+  /** Live per-board progress of the running check, keyed by board file. */
+  checkProgress: Record<string, CheckProgress>
   /** The last finished «Перевірити плату» run, shown in CheckReportModal until closed. */
-  checkResult: (CheckResult & { projectId: string }) | null
+  checkResult: MultiCheckResult | null
+  /** Project ids whose row in the left sidebar is expanded (boards listed). */
+  expandedProjects: Record<string, boolean>
   addError: string | null
   customPrompts: CustomPrompt[]
   claudeProfiles: ClaudeProfile[]
@@ -72,8 +78,15 @@ interface State {
   deleteProject: (id: string) => Promise<void>
   selectProject: (id: string) => Promise<void>
   refreshKicad: (id: string) => Promise<void>
-  runCheck: (id: string) => Promise<void>
+  openCheckModal: (projectId: string | null) => Promise<void>
+  /** Re-scan a project's board files. */
+  refreshBoards: (projectId: string) => Promise<void>
+  setCheckBoards: (projectId: string, sel: Record<string, boolean>) => Promise<void>
+  /** Run the checker over the given boards of a project (sequentially, see main runChecks). */
+  runChecks: (projectId: string, boards: string[]) => Promise<void>
+  applyCheckProgress: (p: CheckProgress) => void
   closeCheckResult: () => void
+  toggleExpanded: (projectId: string) => void
   createCustomPrompt: (title: string, content: string) => Promise<void>
   updateCustomPrompt: (p: CustomPrompt) => Promise<void>
   deleteCustomPrompt: (id: string) => Promise<void>
@@ -123,7 +136,10 @@ export const useStore = create<State>((set, get) => ({
   projects: [],
   kicad: {},
   checking: {},
+  checkModalProject: null,
+  checkProgress: {},
   checkResult: null,
+  expandedProjects: {},
   addError: null,
   customPrompts: [],
   claudeProfiles: [],
@@ -235,20 +251,32 @@ export const useStore = create<State>((set, get) => ({
     const st = await window.api.kicadStatus(id)
     set({ kicad: { ...get().kicad, [id]: st } })
   },
-  runCheck: async (id) => {
-    set({ checking: { ...get().checking, [id]: true } })
+  openCheckModal: async (projectId) => {
+    if (projectId) await get().refreshBoards(projectId)
+    set({ checkModalProject: projectId })
+  },
+  refreshBoards: async (projectId) => {
+    await window.api.listBoards(projectId)
+    set({ projects: await window.api.listProjects() })
+  },
+  setCheckBoards: async (projectId, sel) => {
+    await window.api.setCheckBoards(projectId, sel)
+    set({ projects: await window.api.listProjects() })
+  },
+  runChecks: async (id, boards) => {
+    set({ checking: { ...get().checking, [id]: true }, checkProgress: {} })
     try {
-      const r = await window.api.checkProject(id)
+      const r = await window.api.checkBoards(id, boards)
       const projects = await window.api.listProjects()
       const report = await window.api.lastFindings()
-      set({ projects, report })
-      if (r.ok) set({ checkResult: { ...r, projectId: id } })
-      else set({ addError: r.error ?? 'перевірка не вдалася' })
+      set({ projects, report, checkResult: r, checkModalProject: null })
     } finally {
       set({ checking: { ...get().checking, [id]: false } })
     }
   },
+  applyCheckProgress: (p) => set({ checkProgress: { ...get().checkProgress, [p.boardFile]: p } }),
   closeCheckResult: () => set({ checkResult: null }),
+  toggleExpanded: (projectId) => set({ expandedProjects: { ...get().expandedProjects, [projectId]: !get().expandedProjects[projectId] } }),
   applySnapshot: (s) => {
     // The main process pushes the global snapshot on any file change; the tab shows the
     // active project's scope, so re-fetch that and keep the pushed one as the global library.

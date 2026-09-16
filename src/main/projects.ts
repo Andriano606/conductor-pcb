@@ -1,10 +1,11 @@
 import { randomUUID } from 'crypto'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { spawn } from 'child_process'
+import type { ChildProcess } from 'child_process'
 import { join } from 'path'
-import type { ChatSession, CheckResult, FindingsReport, PcbProject, KicadStatus, RuleOverride } from '../shared/types'
-import { addSession, findSession, projectFromFiles, removeProject, removeSession, renameSession, updateSession, upsertProject } from '../shared/projects'
+import type { BoardCheckResult, ChatSession, CheckProgress, CheckResult, FindingsReport, MultiCheckResult, PcbProject, KicadStatus, RuleOverride, Severity } from '../shared/types'
+import { addSession, findSession, isBoardFile, isSkippedDir, projectFromFiles, removeProject, removeSession, renameSession, reportStemFor, updateSession, upsertProject } from '../shared/projects'
 import { snapshotOverrides, withProjectOverride } from '../shared/rules'
 import { getConfig, setConfig } from './store'
 import { bundledRulesDir, deleteProjectRules, getRules } from './rulesRepo'
@@ -240,26 +241,95 @@ export function startSessionChat(sessionId: string, userData: string, restart = 
   return true
 }
 
-/** Open the board in KiCad's PCB editor (standalone pcbnew, so the API sees it). */
-export function openInKicad(p: PcbProject): void {
-  const cfg = getConfig()
-  const child = spawn(cfg.kicadLauncher, ['pcbnew', p.boardFile], { cwd: p.dir, env: buildEnv(), detached: true, stdio: 'ignore' })
-  child.unref()
+// ---------------------------------------------------------------- boards, KiCad, checks
+
+/** Every board file under `dir` (depth-limited, skipping backups/hidden dirs), sorted, absolute. */
+export function listBoards(dir: string, depth = 3): string[] {
+  const out: string[] = []
+  const walk = (d: string, left: number): void => {
+    let names: string[]
+    try {
+      names = readdirSync(d)
+    } catch {
+      return
+    }
+    for (const name of names.sort()) {
+      const full = join(d, name)
+      let isDir = false
+      try {
+        isDir = statSync(full).isDirectory()
+      } catch {
+        continue
+      }
+      if (isDir) {
+        if (left > 0 && !isSkippedDir(name)) walk(full, left - 1)
+      } else if (isBoardFile(name)) out.push(full)
+    }
+  }
+  walk(dir, depth)
+  return out
 }
 
-export function kicadStatus(p: PcbProject): Promise<KicadStatus> {
+/** Re-scan a project's boards and persist the list when it changed. */
+export function refreshBoards(p: PcbProject): PcbProject {
+  const found = listBoards(p.dir)
+  const boards = found.length ? found : (existsSync(p.boardFile) ? [p.boardFile] : [])
+  if (JSON.stringify(boards) === JSON.stringify(p.boards ?? [])) return p
+  return updateProject(p.id, { boards }) ?? p
+}
+
+/** Open a board in KiCad's PCB editor (standalone pcbnew, so the API sees it). Returns the launcher process. */
+export function openInKicad(p: PcbProject, boardFile = p.boardFile): ChildProcess {
+  const cfg = getConfig()
+  const child = spawn(cfg.kicadLauncher, ['pcbnew', boardFile], { cwd: p.dir, env: buildEnv(), detached: true, stdio: 'ignore' })
+  child.unref()
+  return child
+}
+
+/** Command lines of the running pcbnew editors (the AppImage's inner binary, one per window). */
+function pcbnewCommandLines(): Promise<string[]> {
   return new Promise((resolve) => {
-    const apiSocket = existsSync('/tmp/kicad/api.sock')
-    const ps = spawn('pgrep', ['-f', `pcbnew .*${basename(p.boardFile)}`], { env: buildEnv() })
+    const ps = spawn('pgrep', ['-af', 'bin/pcbnew'], { env: buildEnv() })
     let out = ''
     ps.stdout.on('data', (d) => (out += d.toString()))
-    ps.on('exit', () => resolve({ running: out.trim().length > 0, apiSocket }))
-    ps.on('error', () => resolve({ running: false, apiSocket }))
+    ps.on('exit', () => resolve(out.split('\n').filter((l) => l.trim())))
+    ps.on('error', () => resolve([]))
   })
+}
+
+export async function kicadStatus(p: PcbProject): Promise<KicadStatus> {
+  const apiSocket = existsSync('/tmp/kicad/api.sock')
+  const lines = await pcbnewCommandLines()
+  const boards = p.boards?.length ? p.boards : [p.boardFile]
+  const runningBoards = boards.filter((b) => lines.some((l) => l.includes(basename(b))))
+  return { running: runningBoards.length > 0, apiSocket, runningBoards }
 }
 
 function basename(f: string): string {
   return f.split('/').pop() ?? f
+}
+
+function checkerEnv(p: PcbProject): NodeJS.ProcessEnv {
+  const cfg = getConfig()
+  return buildEnv({ KICAD_CLI: cfg.kicadCli, PCB_RULES_URL: `http://${cfg.api.host}:${cfg.api.port}`, PYTHONPATH: cfg.pcbagentDir, PCB_PROJECT_ID: p.id, PCB_RULES_DIR: bundledRulesDir() })
+}
+
+/** Boards currently open in the KiCad the API reaches (`pcbagent.cli docs --json`), [] when none/unreachable. */
+export function openBoardsInKicad(p: PcbProject): Promise<string[]> {
+  const cfg = getConfig()
+  return new Promise((resolve) => {
+    const ps = spawn(cfg.pythonPath, ['-m', 'pcbagent.cli', 'docs', '--json'], { cwd: cfg.pcbagentDir, env: checkerEnv(p) })
+    let out = ''
+    ps.stdout.on('data', (d) => (out += d.toString()))
+    ps.on('error', () => resolve([]))
+    ps.on('exit', () => {
+      try {
+        resolve((JSON.parse(out.trim().split('\n').pop() ?? '{}') as { boards?: string[] }).boards ?? [])
+      } catch {
+        resolve([])
+      }
+    })
+  })
 }
 
 /** Report files the checker CLI writes into the project dir (`pcbagent.report.write_reports`). */
@@ -270,7 +340,7 @@ export const CHECK_REPORT_JSON = 'pcb_report.json'
  * Turn the checker's stdout (JSON report on the last line) into a CheckResult, pointing at the
  * report files in `dir` when they exist. Pure apart from the injected `exists`.
  */
-export function parseCheckerOutput(out: string, dir: string, exists: (f: string) => boolean = existsSync): CheckResult {
+export function parseCheckerOutput(out: string, dir: string, exists: (f: string) => boolean = existsSync, stem = 'pcb_report'): CheckResult {
   let report: FindingsReport
   try {
     report = JSON.parse(out.trim().split('\n').pop() ?? '{}') as FindingsReport
@@ -278,17 +348,16 @@ export function parseCheckerOutput(out: string, dir: string, exists: (f: string)
     return { ok: false, error: `bad checker output: ${(e as Error).message}` }
   }
   if (!report || typeof report !== 'object' || !Array.isArray(report.findings)) return { ok: false, error: 'bad checker output: no findings array' }
-  const md = join(dir, CHECK_REPORT_MD)
-  const js = join(dir, CHECK_REPORT_JSON)
+  const md = join(dir, `${stem}.md`)
+  const js = join(dir, `${stem}.json`)
   return { ok: true, report, ...(exists(md) ? { reportFile: md } : {}), ...(exists(js) ? { reportJson: js } : {}) }
 }
 
-/** Run the checker CLI for a project; resolves with the JSON report (and report files) or an error text. */
-export function runCheck(p: PcbProject): Promise<CheckResult> {
+/** Run the checker CLI for one board of a project (must be open in KiCad); resolves with the report or an error text. */
+export function runCheck(p: PcbProject, boardFile = p.boardFile, stem = 'pcb_report'): Promise<CheckResult> {
   const cfg = getConfig()
   return new Promise((resolve) => {
-    const env = buildEnv({ KICAD_CLI: cfg.kicadCli, PCB_RULES_URL: `http://${cfg.api.host}:${cfg.api.port}`, PYTHONPATH: cfg.pcbagentDir, PCB_PROJECT_ID: p.id, PCB_RULES_DIR: bundledRulesDir() })
-    const ps = spawn(cfg.pythonPath, ['-m', 'pcbagent.cli', 'check', '--json', '--post', p.dir], { cwd: cfg.pcbagentDir, env })
+    const ps = spawn(cfg.pythonPath, ['-m', 'pcbagent.cli', 'check', '--json', '--post', '--board', boardFile, '--stem', stem, p.dir], { cwd: cfg.pcbagentDir, env: checkerEnv(p) })
     let out = ''
     let err = ''
     ps.stdout.on('data', (d) => (out += d.toString()))
@@ -296,9 +365,111 @@ export function runCheck(p: PcbProject): Promise<CheckResult> {
     ps.on('error', (e) => resolve({ ok: false, error: e.message }))
     ps.on('exit', (code) => {
       if (code !== 0) return resolve({ ok: false, error: (err || out).trim().split('\n').slice(-5).join('\n') })
-      const r = parseCheckerOutput(out, p.dir)
-      if (r.ok && r.report?.summary && r.report.generated) updateProject(p.id, { lastCheck: { generated: r.report.generated, summary: r.report.summary } })
-      resolve(r)
+      resolve(parseCheckerOutput(out, p.dir, existsSync, stem))
     })
   })
+}
+
+const sameBoard = (a: string, b: string): boolean => a === b || basename(a) === basename(b)
+
+/** Injectable plumbing of `runChecks`, so the orchestration is unit-testable without KiCad. */
+export interface CheckDeps {
+  openDocs: () => Promise<string[]>
+  /** Number of running pcbnew editors (any board). */
+  editors: () => Promise<number>
+  launch: (boardFile: string) => ChildProcess
+  close: (proc: ChildProcess) => void
+  check: (boardFile: string, stem: string) => Promise<CheckResult>
+  sleep: (ms: number) => Promise<void>
+  /** How long to wait for a launched pcbnew to expose the board (ms). */
+  openTimeout: number
+}
+
+function defaultDeps(p: PcbProject): CheckDeps {
+  return {
+    openDocs: () => openBoardsInKicad(p),
+    editors: async () => (await pcbnewCommandLines()).length,
+    launch: (b) => openInKicad(p, b),
+    close: (proc) => {
+      if (proc.pid) {
+        try {
+          process.kill(-proc.pid, 'SIGTERM') // the AppImage runtime and the editor it started share the group
+        } catch {
+          try {
+            proc.kill('SIGTERM')
+          } catch {
+            /* already gone */
+          }
+        }
+      }
+    },
+    check: (b, stem) => runCheck(p, b, stem),
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    openTimeout: 120_000
+  }
+}
+
+/**
+ * «Перевірити плату» over `boards`, one at a time. KiCad exposes its API from a single editor,
+ * so: a board already open is checked right away; a board that is not open is opened by us
+ * (and closed afterwards) only when no other editor is running, otherwise it is skipped with
+ * an explanation. Progress goes to `onProgress`; per-board summaries are persisted on the project.
+ */
+export async function runChecks(p: PcbProject, boards: string[], onProgress: (pr: CheckProgress) => void, deps: CheckDeps = defaultDeps(p)): Promise<MultiCheckResult> {
+  const progress = (boardFile: string, phase: CheckProgress['phase'], message?: string): void => onProgress({ projectId: p.id, boardFile, phase, message })
+  for (const b of boards) progress(b, 'waiting')
+  const results: BoardCheckResult[] = []
+  let launched: ChildProcess | null = null
+  const allBoards = p.boards?.length ? p.boards : boards
+  const isOpen = (docs: string[], b: string): boolean => docs.some((d) => sameBoard(d, b))
+  const closeLaunched = async (): Promise<void> => {
+    if (!launched) return
+    deps.close(launched)
+    launched = null
+    const t0 = Date.now()
+    while ((await deps.editors()) > 0 && Date.now() - t0 < 20_000) await deps.sleep(1000)
+  }
+  for (const board of boards) {
+    let docs = await deps.openDocs()
+    if (!isOpen(docs, board)) {
+      const foreign = (await deps.editors()) - (launched ? 1 : 0)
+      if (foreign > 0) {
+        const msg = 'у KiCad відкрита інша плата, а API доступний лише з одного редактора: закрийте її або відкрийте цю плату вручну'
+        results.push({ ok: false, boardFile: board, status: 'skipped', error: msg })
+        progress(board, 'skipped', msg)
+        continue
+      }
+      await closeLaunched()
+      progress(board, 'opening', 'відкриваю в KiCad…')
+      launched = deps.launch(board)
+      const t0 = Date.now()
+      while (!isOpen(docs, board) && Date.now() - t0 < deps.openTimeout) {
+        await deps.sleep(2000)
+        docs = await deps.openDocs()
+      }
+      if (!isOpen(docs, board)) {
+        const msg = 'KiCad не відкрив плату вчасно'
+        results.push({ ok: false, boardFile: board, status: 'error', error: msg })
+        progress(board, 'error', msg)
+        continue
+      }
+    }
+    progress(board, 'checking', 'перевіряю…')
+    const r = await deps.check(board, reportStemFor(board, allBoards))
+    results.push({ ...r, boardFile: board, status: r.ok ? 'ok' : 'error' })
+    progress(board, r.ok ? 'ok' : 'error', r.error)
+  }
+  await closeLaunched()
+  // persist per-board summaries and the project-wide total
+  const lastChecks = { ...(getProject(p.id)?.lastChecks ?? {}) }
+  const total: Record<Severity, number> = { error: 0, warning: 0, info: 0 }
+  let generated = ''
+  for (const r of results) {
+    if (!r.ok || !r.report?.summary) continue
+    lastChecks[r.boardFile] = { generated: r.report.generated, summary: r.report.summary }
+    generated = r.report.generated
+    for (const k of Object.keys(total) as Severity[]) total[k] += r.report.summary[k] ?? 0
+  }
+  if (generated) updateProject(p.id, { lastChecks, lastCheck: { generated, summary: total } })
+  return { projectId: p.id, boards: results }
 }

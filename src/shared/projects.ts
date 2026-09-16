@@ -2,6 +2,29 @@ import type { ChatSession, PcbProject } from './types'
 
 /** Pure helpers for the project list (persisted in AppConfig.projects). */
 
+/** Is this a board file worth listing (not a KiCad backup / autosave)? */
+export function isBoardFile(name: string): boolean {
+  return name.endsWith('.kicad_pcb') && !name.includes('.backup') && !name.startsWith('_autosave-') && !name.startsWith('.')
+}
+
+/** Directories never scanned for boards. */
+export function isSkippedDir(name: string): boolean {
+  return name.startsWith('.') || name.endsWith('-backups') || name === 'node_modules' || name === '__pycache__'
+}
+
+/** The boards «Перевірити плату» will check: every known board unless the user switched it off. */
+export function selectedBoards(p: Pick<PcbProject, 'boards' | 'boardFile' | 'checkBoards'>): string[] {
+  const all = p.boards?.length ? p.boards : [p.boardFile]
+  return all.filter((b) => p.checkBoards?.[b] !== false)
+}
+
+/** Report file stem for a board: pcb_report for a single-board project, pcb_report-<board> otherwise. */
+export function reportStemFor(boardFile: string, boards: string[]): string {
+  if (boards.length <= 1) return 'pcb_report'
+  const name = boardFile.split('/').pop()?.replace(/\.kicad_pcb$/, '') ?? 'board'
+  return `pcb_report-${name}`
+}
+
 export function projectFromFiles(dir: string, files: string[], id: string, now = Date.now()): PcbProject | null {
   const pro = files.find((f) => f.endsWith('.kicad_pro'))
   const pcb = files.find((f) => f.endsWith('.kicad_pcb') && !f.includes('.backup'))

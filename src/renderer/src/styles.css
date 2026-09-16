@@ -468,3 +468,43 @@ a { color: var(--accent); }
 .chat-start-key { color: var(--text-faint); }
 .chat-start-val.off { color: var(--text-faint); }
 .chat-start-line.args .chat-start-val { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+
+/* ---- project rows: expandable board list ---- */
+.project-item { border-radius: 6px; }
+.project-row .chevron { opacity: 0.7; padding: 0 4px; transition: transform 0.15s; font-size: 12px; }
+.project-row .chevron.open { transform: rotate(90deg); }
+.project-row:hover .chevron, .project-item.expanded .chevron { opacity: 1; }
+.board-list { list-style: none; margin: 0 0 4px; padding: 0 0 0 26px; display: flex; flex-direction: column; gap: 1px; }
+.board-row { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-radius: 5px; font-size: 12px; color: var(--text-dim); }
+.board-row:hover { background: var(--bg-3); color: var(--text); }
+.board-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-row-counts { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+.board-row .board-open { opacity: 0; font-size: 12px; padding: 0 4px; }
+.board-row:hover .board-open { opacity: 1; }
+
+/* ---- «Перевірити плату»: board picker ---- */
+.modal.check-boards { width: min(640px, 92vw); }
+.check-board-list { list-style: none; margin: 8px 0 4px; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.check-board-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--hairline); border-radius: 8px; background: var(--bg-3); }
+.check-board-row.off { opacity: 0.6; }
+.check-board-text { flex: 1; min-width: 0; }
+.check-board-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.check-board-meta .ok { color: var(--accent-2); }
+.check-phase.checking, .check-phase.opening { color: var(--info); }
+.check-phase.ok { color: var(--accent-2); }
+.check-phase.error { color: var(--danger); }
+.check-phase.skipped { color: var(--warn); }
+
+/* ---- report: per-board tabs ---- */
+.report-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0 10px; border-bottom: 1px solid var(--hairline); padding-bottom: 6px; }
+.report-tab { display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 1px solid transparent; border-radius: 7px; padding: 4px 10px; color: var(--text-dim); font-size: 12px; }
+.report-tab:hover { background: var(--bg-3); color: var(--text); }
+.report-tab.active { background: var(--bg-4); color: var(--text); border-color: var(--hairline); }
+.report-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
+.report-tab-dot.ok { background: var(--accent-2); }
+.report-tab-dot.error { background: var(--danger); }
+.report-tab-dot.skipped { background: var(--warn); }
+.report-tab-counts { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+.report-error { color: var(--danger); margin: 8px 0 12px; }
+.report-skipped { color: var(--warn); }
+.param-reset { padding: 2px 5px; margin-left: 6px; vertical-align: middle; }

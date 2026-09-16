@@ -210,7 +210,28 @@ export interface FindingsReport {
   findings: Finding[]
 }
 
-/** What «Перевірити плату» resolves with: the checker's JSON report plus the files it wrote next to the board. */
+/** One board's outcome inside a multi-board check. */
+export interface BoardCheckResult extends CheckResult {
+  boardFile: string
+  /** ok = checked; error = the checker failed; skipped = could not be opened in KiCad (another board holds the API). */
+  status: 'ok' | 'error' | 'skipped'
+}
+
+/** «Перевірити плату» over the selected boards of a project, in order. */
+export interface MultiCheckResult {
+  projectId: string
+  boards: BoardCheckResult[]
+}
+
+/** Live progress of a multi-board check, pushed to the renderer per board. */
+export interface CheckProgress {
+  projectId: string
+  boardFile: string
+  phase: 'waiting' | 'opening' | 'checking' | 'ok' | 'error' | 'skipped'
+  message?: string
+}
+
+/** What one checker run resolves with: the JSON report plus the files it wrote next to the board. */
 export interface CheckResult {
   ok: boolean
   report?: FindingsReport
@@ -267,8 +288,14 @@ export interface PcbProject {
   sessions: ChatSession[]
   /** @deprecated pre-tabs field, migrated into sessions[0] on load. */
   claudeSessionId?: string
-  /** Last checker run summary, shown in the sidebar. */
+  /** Last checker run summary (all checked boards together), shown in the sidebar. */
   lastCheck?: { generated: string; summary: Record<Severity, number> }
+  /** All .kicad_pcb files found under the project dir (refreshed on select / expand). */
+  boards?: string[]
+  /** Which boards «Перевірити плату» checks; a board missing here is selected (default on). */
+  checkBoards?: Record<string, boolean>
+  /** Last check per board file. */
+  lastChecks?: Record<string, { generated: string; summary: Record<Severity, number> }>
   /**
    * The project's own rule state (enabled/severity/params per rule), applied on top of the
    * global values. Filled with a full copy of the global values when the project is created
@@ -378,10 +405,12 @@ export interface ChatSnapshot {
 }
 
 export interface KicadStatus {
-  /** pcbnew process for this board is running (best effort, by command line). */
+  /** A pcbnew process with one of the project's boards is running (best effort, by command line). */
   running: boolean
   /** The IPC API socket exists. */
   apiSocket: boolean
+  /** Boards of the project whose pcbnew is running (file paths). */
+  runningBoards?: string[]
 }
 
 // ---------------------------------------------------------------- prompts, Claude config profiles, usage

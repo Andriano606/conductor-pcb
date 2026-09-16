@@ -69,11 +69,11 @@ export function ParamsTable({ rule, scope }: { rule: EffectiveRule; scope?: stri
               </td>
               <td className="muted">
                 {String(p.default)}
-                {changed && (
-                  <button className="link" onClick={() => void setOverride(rule.code, { params: { [p.key]: p.default } })}>
-                    скинути
-                  </button>
-                )}
+                <button className="icon-btn danger param-reset" disabled={!changed} aria-label={`Скинути ${p.label} до типового`}
+                  title={changed ? `Повернути типове значення ${String(p.default)}` : 'Типове значення'}
+                  onClick={() => void setOverride(rule.code, { params: { [p.key]: p.default } })}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" /></svg>
+                </button>
               </td>
             </tr>
           )

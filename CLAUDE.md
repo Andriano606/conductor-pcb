@@ -102,9 +102,14 @@ when sources are newer (tested in `tests/scripts/launch.test.ts`).
 - `src/renderer/src/` — zustand `store.ts` (rules, config, projects, view, `activeSessionByProject` in localStorage) + `chatStore.ts` (transcript mirror per session);
   `App.tsx` = `ProjectSidebar` (left) · `TopBar` (Чат / Правила tabs) · centre = `ChatView` (one session tab, `SessionTabs` strip in its toolbar) or the rules view
   (`RuleView` + `RuleSidebar` on the right); `BoardDiagram` renders a rule's `Scene` to SVG.
-  «Перевірити плату» is enabled only while `kicad[pid].running`; a finished run lands in `store.checkResult` and
-  `CheckReportModal` shows it, with «Вставити файл у чат» staging the checker's `pcb_report.md` as a composer attachment
-  of the visible session (not sent).
+  «Перевірити плату» opens `CheckBoardsModal`: every `.kicad_pcb` under the project dir (`listBoards`, persisted as
+  `PcbProject.boards`) with a toggle (choice persisted in `checkBoards`). `runChecks` (main) checks them one at a time:
+  KiCad serves its API from a single editor, so an open board is checked in place, a closed one is opened by the app and
+  closed afterwards only when no other pcbnew runs, otherwise it is `skipped` with a reason. Progress streams as
+  `check:progress`; the result (`MultiCheckResult`) lands in `store.checkResult` and `CheckReportModal` shows one tab per
+  board, «Вставити файл у чат» staging that board's `pcb_report[-<board>].md` (stem from `reportStemFor`) as a composer
+  attachment of the visible session (not sent). The checker CLI grew `--board`, `--stem` and a `docs` subcommand for this.
+  The left sidebar's project row expands into its board list (open-in-KiCad per board, last counts).
 - `rules/*.json` — one file per rule (schema in `schema/rule.schema.json`); the `examples.bad/good` scenes are the diagrams.
 
 ## Python side (kicad-ai-layout)
