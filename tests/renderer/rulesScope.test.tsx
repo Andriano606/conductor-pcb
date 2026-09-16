@@ -99,6 +99,7 @@ describe('rules scope', () => {
     await vi.waitFor(() => expect(api.setProjectOverride).toHaveBeenCalledWith('p1', 'A_RULE', { enabled: false }))
     expect(api.setConfig).not.toHaveBeenCalled()
     expect(screen.queryByLabelText('Область правил')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Налаштування')).not.toBeInTheDocument() // settings live in the sidebar footer / global window
     fireEvent.click(screen.getByLabelText('Імпортувати правило'))
     expect(useStore.getState().importScope).toBe('p1')
     fireEvent.click(screen.getByText('глобальні…'))

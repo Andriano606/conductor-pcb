@@ -14,7 +14,6 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
   const setCategory = useStore((s) => s.setCategory)
   const onlyEnabled = useStore((s) => s.onlyEnabled)
   const setOnlyEnabled = useStore((s) => s.setOnlyEnabled)
-  const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const total = useStore((s) => s.rules.length)
   const errors = useStore((s) => s.errors)
   const api = useStore((s) => s.api)
@@ -44,7 +43,6 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
         </div>
         <div className="row-tight">
           <button className="icon-btn" title={scopeProject ? `Імпортувати правило з JSON лише для проекту ${scopeProject.name}` : 'Імпортувати правило з JSON'} onClick={() => setImportScope(ruleScope)} aria-label="Імпортувати правило">⤓</button>
-          <button className="icon-btn" title="Налаштування" onClick={() => setSettingsOpen(true)} aria-label="Налаштування">⚙</button>
         </div>
       </div>
       <div className="sidebar-tools">
