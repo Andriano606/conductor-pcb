@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 
 import { homedir } from 'os'
 import { spawn } from 'child_process'
 import { join } from 'path'
-import type { ChatSession, PcbProject, KicadStatus } from '../shared/types'
+import type { ChatSession, CheckResult, FindingsReport, PcbProject, KicadStatus } from '../shared/types'
 import { addSession, findSession, projectFromFiles, removeProject, removeSession, renameSession, updateSession, upsertProject } from '../shared/projects'
 import { getConfig, setConfig } from './store'
 import { bundledRulesDir } from './rulesRepo'
@@ -225,8 +225,29 @@ function basename(f: string): string {
   return f.split('/').pop() ?? f
 }
 
-/** Run the checker CLI for a project; resolves with the JSON report or an error text. */
-export function runCheck(p: PcbProject): Promise<{ ok: boolean; report?: unknown; error?: string }> {
+/** Report files the checker CLI writes into the project dir (`pcbagent.report.write_reports`). */
+export const CHECK_REPORT_MD = 'pcb_report.md'
+export const CHECK_REPORT_JSON = 'pcb_report.json'
+
+/**
+ * Turn the checker's stdout (JSON report on the last line) into a CheckResult, pointing at the
+ * report files in `dir` when they exist. Pure apart from the injected `exists`.
+ */
+export function parseCheckerOutput(out: string, dir: string, exists: (f: string) => boolean = existsSync): CheckResult {
+  let report: FindingsReport
+  try {
+    report = JSON.parse(out.trim().split('\n').pop() ?? '{}') as FindingsReport
+  } catch (e) {
+    return { ok: false, error: `bad checker output: ${(e as Error).message}` }
+  }
+  if (!report || typeof report !== 'object' || !Array.isArray(report.findings)) return { ok: false, error: 'bad checker output: no findings array' }
+  const md = join(dir, CHECK_REPORT_MD)
+  const js = join(dir, CHECK_REPORT_JSON)
+  return { ok: true, report, ...(exists(md) ? { reportFile: md } : {}), ...(exists(js) ? { reportJson: js } : {}) }
+}
+
+/** Run the checker CLI for a project; resolves with the JSON report (and report files) or an error text. */
+export function runCheck(p: PcbProject): Promise<CheckResult> {
   const cfg = getConfig()
   return new Promise((resolve) => {
     const env = buildEnv({ KICAD_CLI: cfg.kicadCli, PCB_RULES_URL: `http://${cfg.api.host}:${cfg.api.port}`, PYTHONPATH: cfg.pcbagentDir, PCB_PROJECT_ID: p.id, PCB_RULES_DIR: bundledRulesDir() })
@@ -238,13 +259,9 @@ export function runCheck(p: PcbProject): Promise<{ ok: boolean; report?: unknown
     ps.on('error', (e) => resolve({ ok: false, error: e.message }))
     ps.on('exit', (code) => {
       if (code !== 0) return resolve({ ok: false, error: (err || out).trim().split('\n').slice(-5).join('\n') })
-      try {
-        const report = JSON.parse(out.trim().split('\n').pop() ?? '{}') as { summary?: PcbProject['lastCheck'] extends infer T ? (T extends { summary: infer S } ? S : never) : never; generated?: string }
-        if (report.summary && report.generated) updateProject(p.id, { lastCheck: { generated: report.generated, summary: report.summary } })
-        resolve({ ok: true, report })
-      } catch (e) {
-        resolve({ ok: false, error: `bad checker output: ${(e as Error).message}` })
-      }
+      const r = parseCheckerOutput(out, p.dir)
+      if (r.ok && r.report?.summary && r.report.generated) updateProject(p.id, { lastCheck: { generated: r.report.generated, summary: r.report.summary } })
+      resolve(r)
     })
   })
 }

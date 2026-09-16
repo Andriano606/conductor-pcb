@@ -204,6 +204,17 @@ export interface FindingsReport {
   findings: Finding[]
 }
 
+/** What «Перевірити плату» resolves with: the checker's JSON report plus the files it wrote next to the board. */
+export interface CheckResult {
+  ok: boolean
+  report?: FindingsReport
+  /** `pcb_report.md` written by the checker into the project dir (absent when it was not written). */
+  reportFile?: string
+  /** `pcb_report.json`, same place. */
+  reportJson?: string
+  error?: string
+}
+
 export interface RulesSnapshot {
   rules: EffectiveRule[]
   errors: { file: string; message: string }[]

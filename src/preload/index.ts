@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AppConfig, RuleOverride, ChatAttachment, ChatAnswer, ChatSession, ClaudeProfile, CustomPrompt, EnvVar, UsageWindow, ChatEventPayload, ChatSnapshot, CheckerConfigExport, FindingsReport, KicadStatus, PcbProject, Rule, RulesSnapshot } from '../shared/types'
+import type { AppConfig, CheckResult, RuleOverride, ChatAttachment, ChatAnswer, ChatSession, ClaudeProfile, CustomPrompt, EnvVar, UsageWindow, ChatEventPayload, ChatSnapshot, CheckerConfigExport, FindingsReport, KicadStatus, PcbProject, Rule, RulesSnapshot } from '../shared/types'
 
 export interface ApiStatus {
   running: boolean
@@ -58,7 +58,7 @@ const api = {
   selectProject: (id: string): Promise<AppConfig> => ipcRenderer.invoke('projects:select', id),
   openKicad: (id: string): Promise<boolean> => ipcRenderer.invoke('projects:openKicad', id),
   kicadStatus: (id: string): Promise<KicadStatus> => ipcRenderer.invoke('projects:kicadStatus', id),
-  checkProject: (id: string): Promise<{ ok: boolean; report?: unknown; error?: string }> => ipcRenderer.invoke('projects:check', id),
+  checkProject: (id: string): Promise<CheckResult> => ipcRenderer.invoke('projects:check', id),
   onProjectsChanged: (fn: (p: PcbProject[]) => void): (() => void) => {
     const h = (_e: unknown, p: PcbProject[]): void => fn(p)
     ipcRenderer.on('projects:changed', h)

@@ -63,6 +63,32 @@ describe('ChatView', () => {
     expect(screen.getByText('NRST')).toBeInTheDocument()
     expect(api.kicadStatus).toHaveBeenCalledWith('p1')
   })
+  it('keeps «Перевірити плату» disabled until KiCad with the board is running', async () => {
+    api.kicadStatus.mockResolvedValueOnce({ running: false, apiSocket: false })
+    render(<ChatView project={project} session={session} />)
+    const btn = await screen.findByText('Перевірити плату')
+    expect(await screen.findByText('KiCad не запущений')).toBeInTheDocument()
+    expect(btn).toBeDisabled()
+    useStore.setState({ kicad: { p1: { running: true, apiSocket: true } } })
+    expect(await screen.findByText('KiCad відкритий')).toBeInTheDocument()
+    expect(screen.getByText('Перевірити плату')).toBeEnabled()
+  })
+  it('runs the checker on click and hands the result to the report modal', async () => {
+    const report = { board: 'b.kicad_pcb', generated: 'g', summary: { error: 0, warning: 1, info: 0 }, findings: [] }
+    const ext = api as typeof api & { checkProject: ReturnType<typeof vi.fn>; listProjects: ReturnType<typeof vi.fn>; lastFindings: ReturnType<typeof vi.fn> }
+    ext.checkProject = vi.fn().mockResolvedValue({ ok: true, report, reportFile: '/x/board/pcb_report.md' })
+    ext.listProjects = vi.fn().mockResolvedValue([project])
+    ext.lastFindings = vi.fn().mockResolvedValue(report)
+    useStore.setState({ kicad: { p1: { running: true, apiSocket: true } }, checkResult: null, addError: null })
+    render(<ChatView project={project} session={session} />)
+    fireEvent.click(await screen.findByText('Перевірити плату'))
+    expect(ext.checkProject).toHaveBeenCalledWith('p1')
+    await vi.waitFor(() => expect(useStore.getState().checkResult).toMatchObject({ projectId: 'p1', reportFile: '/x/board/pcb_report.md' }))
+    expect(useStore.getState().checking.p1).toBe(false)
+    ext.checkProject.mockResolvedValueOnce({ ok: false, error: 'KiCad API недоступний' })
+    fireEvent.click(screen.getByText('Перевірити плату'))
+    await vi.waitFor(() => expect(useStore.getState().addError).toBe('KiCad API недоступний'))
+  })
   it('re-attaches on a sequence gap', () => {
     const apply = useChatStore.getState().applyEvent
     apply({ id: 'p9', seq: 5, ev: { type: 'busy', busy: true } })

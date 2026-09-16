@@ -94,6 +94,9 @@ when sources are newer (tested in `tests/scripts/launch.test.ts`).
 - `src/renderer/src/` — zustand `store.ts` (rules, config, projects, view, `activeSessionByProject` in localStorage) + `chatStore.ts` (transcript mirror per session);
   `App.tsx` = `ProjectSidebar` (left) · `TopBar` (Чат / Правила tabs) · centre = `ChatView` (one session tab, `SessionTabs` strip in its toolbar) or the rules view
   (`RuleView` + `RuleSidebar` on the right); `BoardDiagram` renders a rule's `Scene` to SVG.
+  «Перевірити плату» is enabled only while `kicad[pid].running`; a finished run lands in `store.checkResult` and
+  `CheckReportModal` shows it, with «Вставити файл у чат» staging the checker's `pcb_report.md` as a composer attachment
+  of the visible session (not sent).
 - `rules/*.json` — one file per rule (schema in `schema/rule.schema.json`); the `examples.bad/good` scenes are the diagrams.
 
 ## Python side (kicad-ai-layout)

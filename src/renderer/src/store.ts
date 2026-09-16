@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AppConfig, Category, ClaudeProfile, CustomPrompt, EffectiveRule, EnvVar, FindingsReport, KicadStatus, PcbProject, RuleOverride, RulesSnapshot, Severity, UsageWindow } from '@shared/types'
+import type { AppConfig, Category, CheckResult, ClaudeProfile, CustomPrompt, EffectiveRule, EnvVar, FindingsReport, KicadStatus, PcbProject, RuleOverride, RulesSnapshot, Severity, UsageWindow } from '@shared/types'
 import type { ApiStatus } from '../../preload'
 
 interface State {
@@ -25,6 +25,8 @@ interface State {
   projects: PcbProject[]
   kicad: Record<string, KicadStatus>
   checking: Record<string, boolean>
+  /** The last finished «Перевірити плату» run, shown in CheckReportModal until closed. */
+  checkResult: (CheckResult & { projectId: string }) | null
   addError: string | null
   customPrompts: CustomPrompt[]
   claudeProfiles: ClaudeProfile[]
@@ -54,6 +56,7 @@ interface State {
   selectProject: (id: string) => Promise<void>
   refreshKicad: (id: string) => Promise<void>
   runCheck: (id: string) => Promise<void>
+  closeCheckResult: () => void
   createCustomPrompt: (title: string, content: string) => Promise<void>
   updateCustomPrompt: (p: CustomPrompt) => Promise<void>
   deleteCustomPrompt: (id: string) => Promise<void>
@@ -100,6 +103,7 @@ export const useStore = create<State>((set, get) => ({
   projects: [],
   kicad: {},
   checking: {},
+  checkResult: null,
   addError: null,
   customPrompts: [],
   claudeProfiles: [],
@@ -205,11 +209,13 @@ export const useStore = create<State>((set, get) => ({
       const projects = await window.api.listProjects()
       const report = await window.api.lastFindings()
       set({ projects, report })
-      if (!r.ok) set({ addError: r.error ?? 'перевірка не вдалася' })
+      if (r.ok) set({ checkResult: { ...r, projectId: id } })
+      else set({ addError: r.error ?? 'перевірка не вдалася' })
     } finally {
       set({ checking: { ...get().checking, [id]: false } })
     }
   },
+  closeCheckResult: () => set({ checkResult: null }),
   applySnapshot: (s) => {
     const { selected } = get()
     const stillThere = selected && s.rules.some((r) => r.code === selected)

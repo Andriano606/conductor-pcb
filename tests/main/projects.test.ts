@@ -5,7 +5,7 @@ import { join } from 'path'
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp', getAppPath: () => '/tmp', isPackaged: false } }))
 
-import { carryResumeTranscript, transcriptSlug } from '../../src/main/projects'
+import { carryResumeTranscript, parseCheckerOutput, transcriptSlug } from '../../src/main/projects'
 
 describe('transcript carry-over between config dirs', () => {
   it('slugs the cwd like Claude does', () => {
@@ -36,5 +36,22 @@ describe('transcript carry-over between config dirs', () => {
     expect(carryResumeTranscript(p, to, [from])).toBe(true)
     expect(readFileSync(join(to, 'projects', '-x-board', 'a.jsonl'), 'utf8')).toBe('A')
     expect(readFileSync(join(to, 'projects', '-x-board', 'b.jsonl'), 'utf8')).toBe('B')
+  })
+})
+
+describe('parseCheckerOutput', () => {
+  it('takes the JSON report from the last stdout line and points at the report files that exist', () => {
+    const out = 'log line\n{"board":"b.kicad_pcb","generated":"g","summary":{"error":1,"warning":0,"info":0},"findings":[{"code":"X","severity":"error","title":"t"}]}\n'
+    const r = parseCheckerOutput(out, '/x/board', (f) => f.endsWith('pcb_report.md'))
+    expect(r.ok).toBe(true)
+    expect(r.report?.findings).toHaveLength(1)
+    expect(r.reportFile).toBe('/x/board/pcb_report.md')
+    expect(r.reportJson).toBeUndefined()
+    const both = parseCheckerOutput(out, '/x/board', () => true)
+    expect(both.reportJson).toBe('/x/board/pcb_report.json')
+  })
+  it('fails on non-JSON or a report without findings', () => {
+    expect(parseCheckerOutput('oops', '/x', () => true).ok).toBe(false)
+    expect(parseCheckerOutput('{"board":"b"}', '/x', () => true).ok).toBe(false)
   })
 })

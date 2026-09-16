@@ -6,6 +6,7 @@ import { RuleView } from './components/RuleView'
 import { SettingsModal } from './components/SettingsModal'
 import { ImportRuleModal } from './components/ImportRuleModal'
 import { ConfirmModal } from './components/ConfirmModal'
+import { CheckReportModal } from './components/CheckReportModal'
 import { ProjectSidebar } from './components/ProjectSidebar'
 import { TopBar } from './components/TopBar'
 import { ChatView } from './components/ChatView'
@@ -84,6 +85,7 @@ export function App(): JSX.Element {
       </div>
       {settingsOpen && <SettingsModal />}
       {importOpen && <ImportRuleModal />}
+      <CheckReportModal sessionId={session?.id ?? null} />
       <ConfirmModal />
     </div>
   )

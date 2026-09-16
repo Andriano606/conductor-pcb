@@ -62,7 +62,9 @@ Two gotchas, both handled below:
 
 ```bash
 # Build the match pattern from pieces so this script's own argv can't match it.
-pat=$(printf '%s' '.mount_' 'Conduc')
+# Include the binary name: a bare '.mount_Conduc' also matches Conductor Linux
+# (another AppImage the user runs, mounted as /tmp/.mount_Conduc*/conductor-linux).
+pat=$(printf '%s' '.mount_' 'Conduc' '.*/conductor-pcb')
 
 # Kill the running instance (main + helper procs). xargs -r, NOT `kill $pids`:
 # the tool shell is zsh, which does not word-split an unquoted variable, so
@@ -91,7 +93,7 @@ icon/app is still the old build.
 
 ### 4. Verify the new instance is up
 ```bash
-pgrep -af '.mount_'"Conduc" | head -3
+pgrep -af '.mount_'"Conduc"'.*/conductor-pcb' | head -3
 ```
 Confirm a process with a **new** `/tmp/.mount_Conduc<XXXX>/` path is running
 (different suffix from the old one). Kill any orphan helpers still pointing at
