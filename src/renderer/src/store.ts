@@ -57,6 +57,8 @@ interface State {
   /** Change enabled/severity/params of a rule in `scope` (default: the current `ruleScope`). */
   setOverride: (code: string, ov: RuleOverride, scope?: string) => Promise<void>
   resetOverride: (code: string, scope?: string) => Promise<void>
+  /** Drop all of a project's overrides (every rule back to the global values). */
+  resetProjectOverrides: (projectId: string) => Promise<void>
   /** Delete a user rule file (scope 'global') or a project's own rule (scope = project id). */
   deleteRule: (code: string, scope: string) => Promise<boolean>
   /** Re-fetch the scoped rules for the active project and the global library. */
@@ -288,6 +290,12 @@ export const useStore = create<State>((set, get) => ({
       const config = await window.api.setConfig({ overrides: { [code]: null as unknown as RuleOverride } })
       set({ config: { ...config, overrides } })
     }
+    await get().refreshRules()
+  },
+  resetProjectOverrides: async (projectId) => {
+    await window.api.resetProjectOverrides(projectId)
+    const config = await window.api.getConfig()
+    set({ config, projects: config.projects })
     await get().refreshRules()
   },
   deleteRule: async (code, scope) => {

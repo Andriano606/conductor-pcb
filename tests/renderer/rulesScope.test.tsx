@@ -23,6 +23,7 @@ function mockApi(): Record<string, ReturnType<typeof vi.fn>> {
     setConfig: vi.fn().mockImplementation((patch) => Promise.resolve({ activeProjectId: 'p1', overrides: patch.overrides ?? {}, projects: [p1] })),
     getConfig: vi.fn().mockResolvedValue({ activeProjectId: 'p1', overrides: {}, projects: [p1] }),
     setProjectOverride: vi.fn().mockResolvedValue(snap([], 'p1')),
+    resetProjectOverrides: vi.fn().mockResolvedValue(snap([], 'p1')),
     saveUserRule: vi.fn().mockResolvedValue([]),
     deleteUserRule: vi.fn().mockResolvedValue(true),
     reloadRules: vi.fn().mockResolvedValue(undefined),
@@ -95,12 +96,16 @@ describe('rules scope', () => {
     const api = mockApi()
     render(<RuleSidebar rules={useStore.getState().rules} />)
     expect(screen.getByText('board')).toBeInTheDocument()
-    // ↺ next to import resets the selected rule's project override, enabled only when there is one
-    expect(screen.getByLabelText('Скинути A_RULE до типових')).toBeDisabled()
-    useStore.setState({ projects: [{ ...p1, ruleOverrides: { A_RULE: { enabled: false } } }] })
-    await vi.waitFor(() => expect(screen.getByLabelText('Скинути A_RULE до типових')).toBeEnabled())
-    fireEvent.click(screen.getByLabelText('Скинути A_RULE до типових'))
-    await vi.waitFor(() => expect(api.setProjectOverride).toHaveBeenCalledWith('p1', 'A_RULE', null))
+    // ↺ next to import drops every override of the project (after a confirm), enabled only when there are some
+    const resetBtn = (): HTMLElement => screen.getByLabelText('Скинути всі правила проекту до глобальних')
+    expect(resetBtn()).toBeDisabled()
+    useStore.setState({ projects: [{ ...p1, ruleOverrides: { A_RULE: { enabled: false }, B_RULE: { params: {} } } }] })
+    await vi.waitFor(() => expect(resetBtn()).toBeEnabled())
+    expect(resetBtn().title).toContain('змінено: 1')
+    fireEvent.click(resetBtn())
+    await vi.waitFor(() => expect(useStore.getState().confirm).not.toBeNull())
+    useStore.getState().resolveConfirm(true)
+    await vi.waitFor(() => expect(api.resetProjectOverrides).toHaveBeenCalledWith('p1'))
     fireEvent.click(screen.getByLabelText('Увімкнути A_RULE для проекту board'))
     await vi.waitFor(() => expect(api.setProjectOverride).toHaveBeenCalledWith('p1', 'A_RULE', { enabled: false }))
     expect(api.setConfig).not.toHaveBeenCalled()

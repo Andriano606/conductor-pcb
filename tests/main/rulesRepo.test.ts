@@ -19,7 +19,7 @@ import { sampleRule } from '../helpers/sample'
 import { initStore, setConfig } from '../../src/main/store'
 import { deleteProjectRules, deleteUserRule, getRules, projectRulesDir, reloadRules, saveUserRule, setProjectRulesRoot, snapshot } from '../../src/main/rulesRepo'
 import { handle } from '../../src/main/api'
-import { reconcileProjectOverrides, setProjectRuleOverride } from '../../src/main/projects'
+import { reconcileProjectOverrides, resetProjectOverrides, setProjectRuleOverride } from '../../src/main/projects'
 import type { IncomingMessage, ServerResponse } from 'http'
 
 mkdirSync(join(tmp, 'rules'), { recursive: true })
@@ -86,6 +86,10 @@ describe('project-scoped rules', () => {
     expect(getConfigProject('p2').ruleOverrides?.A_RULE).toEqual({ params: { thr: 7 } })
     setProjectRuleOverride('p2', 'A_RULE', null)
     expect(getConfigProject('p2').ruleOverrides?.A_RULE).toBeUndefined()
+    setProjectRuleOverride('p2', 'A_RULE', { params: { thr: 9 } })
+    setProjectRuleOverride('p2', 'ONLY_P1', { enabled: false })
+    resetProjectOverrides('p2')
+    expect(getConfigProject('p2').ruleOverrides).toEqual({})
   })
   it('changing the global values re-prunes the project overrides', () => {
     setConfig({ overrides: { A_RULE: { enabled: false, params: { thr: 3 } } } })

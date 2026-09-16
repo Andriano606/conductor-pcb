@@ -44,7 +44,7 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
         </div>
         <div className="row-tight">
           <button className="icon-btn" title={scopeProject ? `Імпортувати правило з JSON лише для проекту ${scopeProject.name}` : 'Імпортувати правило з JSON'} onClick={() => setImportScope(ruleScope)} aria-label="Імпортувати правило">⤓</button>
-          <ResetRuleButton code={selected} scope={ruleScope} />
+          <ResetRuleButton scope={ruleScope} />
         </div>
       </div>
       <div className="sidebar-tools">

@@ -3,25 +3,24 @@ import { overrideIsEmpty } from '@shared/rules'
 import { useStore } from '../store'
 
 /**
- * ↺ next to the import button: resets the selected rule (`code`) in `scope` to its defaults —
- * in a project scope that removes the project's override (back to the global values), in the
- * global scope the global override (back to the rule file). Disabled when nothing is overridden.
+ * ↺ next to the import button of the project rules sidebar: drops every override of the
+ * project (`scope` = project id) so all toggles, levels and thresholds go back to the global
+ * values. Disabled when the project overrides nothing; asks for confirmation first.
  */
-export function ResetRuleButton({ code, scope }: { code: string | null; scope: string }): JSX.Element {
-  const config = useStore((s) => s.config)
+export function ResetRuleButton({ scope }: { scope: string }): JSX.Element | null {
   const projects = useStore((s) => s.projects)
-  const resetOverride = useStore((s) => s.resetOverride)
-  const project = scope === 'global' ? null : (projects.find((p) => p.id === scope) ?? null)
-  const ov = code ? (project ? project.ruleOverrides?.[code] : config?.overrides[code]) : undefined
-  const canReset = !!code && !overrideIsEmpty(ov)
-  const title = !code
-    ? 'Оберіть правило'
-    : project
-      ? `Скинути ${code} до типових: прибрати зміни цього проекту (рівень, увімкненість, пороги знову як у глобальних)`
-      : `Скинути ${code} до типових: прибрати глобальні зміни (як у файлі правила)`
+  const resetProjectOverrides = useStore((s) => s.resetProjectOverrides)
+  const askConfirm = useStore((s) => s.askConfirm)
+  const project = projects.find((p) => p.id === scope) ?? null
+  if (!project) return null
+  const changed = Object.values(project.ruleOverrides ?? {}).filter((ov) => !overrideIsEmpty(ov)).length
+  const reset = async (): Promise<void> => {
+    if (await askConfirm(`Скинути всі правила проекту ${project.name} до глобальних? Зміни ${changed} правил (увімкненість, рівні, пороги) буде прибрано.`)) await resetProjectOverrides(project.id)
+  }
   return (
-    <button className="icon-btn danger" title={title} aria-label={`Скинути ${code ?? 'правило'} до типових`} disabled={!canReset}
-      onClick={() => code && void resetOverride(code, scope)}>
+    <button className="icon-btn danger" disabled={!changed} aria-label="Скинути всі правила проекту до глобальних"
+      title={changed ? `Скинути всі правила проекту до глобальних (змінено: ${changed})` : 'У проекті нічого не змінено відносно глобальних правил'}
+      onClick={() => void reset()}>
       <ResetIcon />
     </button>
   )

@@ -11,6 +11,7 @@ const api = {
   // rules
   getRules: (projectId?: string): Promise<RulesSnapshot> => ipcRenderer.invoke('rules:snapshot', projectId),
   setProjectOverride: (projectId: string, code: string, ov: RuleOverride | null): Promise<RulesSnapshot> => ipcRenderer.invoke('rules:setProjectOverride', projectId, code, ov),
+  resetProjectOverrides: (projectId: string): Promise<RulesSnapshot> => ipcRenderer.invoke('rules:resetProjectOverrides', projectId),
   reloadRules: (): Promise<RulesSnapshot> => ipcRenderer.invoke('rules:reload'),
   saveUserRule: (rule: Rule, projectId?: string): Promise<string[]> => ipcRenderer.invoke('rules:saveUser', rule, projectId),
   deleteUserRule: (code: string, projectId?: string): Promise<boolean> => ipcRenderer.invoke('rules:deleteUser', code, projectId),

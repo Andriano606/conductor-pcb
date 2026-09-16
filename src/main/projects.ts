@@ -48,6 +48,11 @@ export function setProjectRuleOverride(projectId: string, code: string, ov: Rule
   setConfig({ projects })
 }
 
+/** Drop every rule override of a project: it goes back to the global values for all rules. */
+export function resetProjectOverrides(projectId: string): void {
+  setConfig({ projects: getConfig().projects.map((p) => (p.id === projectId ? { ...p, ruleOverrides: {} } : p)) })
+}
+
 /**
  * Re-prune every project's overrides against the current global effective values. Called after
  * the global overrides change (settings window, HTTP API) or the rule files reload, so a project
