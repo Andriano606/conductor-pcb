@@ -5,6 +5,7 @@ import { RuleSidebar } from './components/RuleSidebar'
 import { RuleView } from './components/RuleView'
 import { SettingsModal } from './components/SettingsModal'
 import { ImportRuleModal } from './components/ImportRuleModal'
+import { ConfirmModal } from './components/ConfirmModal'
 import { ProjectSidebar } from './components/ProjectSidebar'
 import { TopBar } from './components/TopBar'
 import { ChatView } from './components/ChatView'
@@ -36,9 +37,11 @@ export function App(): JSX.Element {
     const offChat = window.api.onChatEvent(applyEvent)
     const offProj = window.api.onProjectsChanged(setProjects)
     const offCfg = window.api.onConfigChanged((config) => useStore.setState({ config, projects: config.projects }))
-    const offView = window.api.onSetView((v) => useStore.getState().setView(v))
+    const offView = window.api.onSetView((v) => (v === ('settings' as string) ? useStore.getState().setSettingsOpen(true) : useStore.getState().setView(v)))
+    const offUsage = window.api.onUsage((w) => useStore.getState().setUsage(w))
     return () => {
       offView()
+      offUsage()
       offRules()
       offFind()
       offApi()
@@ -77,6 +80,7 @@ export function App(): JSX.Element {
       </div>
       {settingsOpen && <SettingsModal />}
       {importOpen && <ImportRuleModal />}
+      <ConfirmModal />
     </div>
   )
 }

@@ -156,6 +156,12 @@ export interface AppConfig {
   /** kicad-cli binary (for DRC) and the KiCad launcher used to open pcbnew. */
   kicadCli: string
   kicadLauncher: string
+  /** Prompt library (global). */
+  customPrompts: CustomPrompt[]
+  /** Claude config overlays (global list; enabled per project). */
+  claudeProfiles: ClaudeProfile[]
+  /** Last parsed /usage windows, so the meters render right after launch. */
+  lastUsage: UsageWindow[]
 }
 
 /** A rule with the user's overrides applied. */
@@ -225,6 +231,10 @@ export interface PcbProject {
   /** Runtime knobs chosen in the chat toolbar (persisted, re-applied on respawn). */
   claudeModel?: string
   claudeEffort?: string
+  /** Ids of the ClaudeProfile(s) enabled for this project's chat (empty = plain ~/.claude). */
+  claudeConfigProfileIds?: string[]
+  /** The merged CLAUDE_CONFIG_DIR built for those profiles (set whenever at least one is enabled). */
+  mergedConfigDir?: string
 }
 
 export interface ChatQuestionOption {
@@ -322,4 +332,38 @@ export interface KicadStatus {
   running: boolean
   /** The IPC API socket exists. */
   apiSocket: boolean
+}
+
+// ---------------------------------------------------------------- prompts, Claude config profiles, usage
+
+export interface CustomPrompt {
+  id: string
+  title: string
+  content: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface EnvVar {
+  key: string
+  value: string
+}
+
+/** A Claude config overlay (a folder with commands/skills/agents/CLAUDE.md/settings). */
+export interface ClaudeProfile {
+  id: string
+  name: string
+  /** Source config directory, read live at every (re)build. */
+  path: string
+  env?: EnvVar[]
+  createdAt: number
+  updatedAt?: number
+}
+
+export interface UsageWindow {
+  key: string
+  label: string
+  percent: number
+  resetText?: string
+  resetsAt?: number
 }

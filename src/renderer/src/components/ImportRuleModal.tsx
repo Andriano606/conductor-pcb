@@ -92,7 +92,7 @@ export function ImportRuleModal(): JSX.Element {
               </ul>
             )}
             <p className="muted small">
-              Формат описано в <code>schema/rule.schema.json</code>; скіл <code>write-pcb-rule</code> вміє писати такі файли. Правило збережеться в папку користувацьких правил.
+              Формат описано в <code>schema/rule.schema.json</code>; конфіг Claude <code>kicad-pcb-rules</code> (скіл pcb-rule-author) вміє писати такі файли. Правило збережеться в папку користувацьких правил.
             </p>
           </section>
           <section className="import-preview">

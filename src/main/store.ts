@@ -1,7 +1,8 @@
 import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
-import type { AppConfig } from '../shared/types'
+import { randomUUID } from 'crypto'
+import type { AppConfig, ClaudeProfile, CustomPrompt, EnvVar } from '../shared/types'
 import { defaultConfig, mergeConfig } from '../shared/rules'
 
 let configPath = ''
@@ -42,6 +43,36 @@ export function setConfig(patch: Partial<AppConfig>): AppConfig {
   config = mergeConfig(config, patch)
   persist()
   return config
+}
+
+// ---- prompt library
+export function addCustomPrompt(title: string, content: string): CustomPrompt {
+  const now = Date.now()
+  const prompt: CustomPrompt = { id: randomUUID(), title, content, createdAt: now, updatedAt: now }
+  setConfig({ customPrompts: [...config.customPrompts, prompt] })
+  return prompt
+}
+export function updateCustomPrompt(prompt: CustomPrompt): void {
+  setConfig({ customPrompts: config.customPrompts.map((p) => (p.id === prompt.id ? { ...prompt, updatedAt: Date.now() } : p)) })
+}
+export function removeCustomPrompt(id: string): void {
+  setConfig({ customPrompts: config.customPrompts.filter((p) => p.id !== id) })
+}
+// ---- Claude config profiles
+export function addClaudeProfile(name: string, path: string, env: EnvVar[] = []): ClaudeProfile {
+  const now = Date.now()
+  const profile: ClaudeProfile = { id: randomUUID(), name, path, env, createdAt: now, updatedAt: now }
+  setConfig({ claudeProfiles: [...config.claudeProfiles, profile] })
+  return profile
+}
+export function updateClaudeProfile(profile: ClaudeProfile): void {
+  setConfig({ claudeProfiles: config.claudeProfiles.map((p) => (p.id === profile.id ? { ...profile, updatedAt: Date.now() } : p)) })
+}
+export function removeClaudeProfile(id: string): void {
+  setConfig({
+    claudeProfiles: config.claudeProfiles.filter((p) => p.id !== id),
+    projects: config.projects.map((pr) => (pr.claudeConfigProfileIds?.includes(id) ? { ...pr, claudeConfigProfileIds: pr.claudeConfigProfileIds.filter((x) => x !== id) } : pr))
+  })
 }
 
 export function getConfigPath(): string {

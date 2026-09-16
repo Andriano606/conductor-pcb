@@ -1,13 +1,15 @@
 import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { basename } from 'path'
-import type { AppConfig, ChatAttachment, Rule, RuleOverride } from '../shared/types'
+import type { AppConfig, ChatAttachment, ClaudeProfile, CustomPrompt, EnvVar, Rule, RuleOverride } from '../shared/types'
 import { exportCheckerConfig, withProjectOverride } from '../shared/rules'
-import { getConfig, getConfigPath, setConfig } from './store'
+import { addClaudeProfile, addCustomPrompt, getConfig, getConfigPath, removeClaudeProfile, removeCustomPrompt, setConfig, updateClaudeProfile, updateCustomPrompt } from './store'
 import { deleteUserRule, getRules, reloadRules, saveUserRule, snapshot, startWatching } from './rulesRepo'
 import { apiStatus, getLastReport, setLastReport, startApi } from './api'
 import type { ChatAnswer, PcbProject } from '../shared/types'
-import { addProjectFromDir, deleteProject, getProject, kicadStatus, openInKicad, runCheck, startProjectChat, updateProject } from './projects'
+import { addProjectFromDir, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, runCheck, setProjectProfiles, startProjectChat, updateProject } from './projects'
+import { isClaudeConfigDir } from './configMerge'
+import { pollUsage, refreshUsageSoon } from './usagePoller'
 import { answerChat, attachChat, clearChat, interruptChat, killChat, sendChatMessage, setChatParams } from './claudeChat'
 
 export function registerIpc(win: BrowserWindow): void {
@@ -116,6 +118,23 @@ export function registerIpc(win: BrowserWindow): void {
     clearChat(id)
     startProjectChat(id, app.getPath('userData'))
   })
+  // ---- prompt library
+  ipcMain.handle('prompts:list', () => getConfig().customPrompts)
+  ipcMain.handle('prompts:add', (_e, title: string, content: string) => addCustomPrompt(title, content))
+  ipcMain.handle('prompts:update', (_e, prompt: CustomPrompt) => updateCustomPrompt(prompt))
+  ipcMain.handle('prompts:remove', (_e, id: string) => removeCustomPrompt(id))
+  // ---- Claude config profiles
+  ipcMain.handle('profiles:list', () => getConfig().claudeProfiles)
+  ipcMain.handle('profiles:add', (_e, name: string, path: string, env: EnvVar[]) => addClaudeProfile(name, path, env))
+  ipcMain.handle('profiles:update', (_e, profile: ClaudeProfile) => updateClaudeProfile(profile))
+  ipcMain.handle('profiles:remove', (_e, id: string) => removeClaudeProfile(id))
+  ipcMain.handle('profiles:isConfigDir', (_e, dir: string) => isClaudeConfigDir(dir))
+  ipcMain.handle('profiles:setForProject', (_e, projectId: string, ids: string[]) => setProjectProfiles(projectId, ids, app.getPath('userData')))
+  ipcMain.handle('profiles:rebuild', () => rebuildAllConfigs(app.getPath('userData')))
+  // ---- usage
+  ipcMain.handle('usage:get', () => getConfig().lastUsage)
+  ipcMain.on('usage:refresh', (_e, force?: boolean) => (force ? pollUsage() : refreshUsageSoon()))
+  ipcMain.handle('sys:homeDir', () => app.getPath('home'))
   ipcMain.on('sys:copy', (_e, text: string) => clipboard.writeText(text))
   ipcMain.on('sys:openExternal', (_e, url: string) => void shell.openExternal(url))
 }

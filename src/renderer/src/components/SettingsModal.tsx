@@ -13,6 +13,14 @@ function PathRow({ label, value, onCommit }: { label: string; value: string; onC
   )
 }
 
+type SectionId = 'rules' | 'claude' | 'api' | 'export'
+const SECTIONS: { id: SectionId; label: string; icon: string }[] = [
+  { id: 'rules', label: 'Правила', icon: '📐' },
+  { id: 'claude', label: 'Claude та інструменти', icon: '🤖' },
+  { id: 'api', label: 'Локальний API', icon: '🔌' },
+  { id: 'export', label: 'Конфіг перевіряча', icon: '📤' }
+]
+
 export function SettingsModal(): JSX.Element | null {
   const config = useStore((s) => s.config)
   const configPath = useStore((s) => s.configPath)
@@ -25,6 +33,7 @@ export function SettingsModal(): JSX.Element | null {
   const [port, setPort] = useState(String(config?.api.port ?? 4817))
   const [exportPreview, setExportPreview] = useState<string>('')
   const [saved, setSaved] = useState<string | null>(null)
+  const [section, setSection] = useState<SectionId>('rules')
 
   const ruleScope = useStore((s) => s.ruleScope)
   useEffect(() => {
@@ -44,15 +53,25 @@ export function SettingsModal(): JSX.Element | null {
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setSettingsOpen(false)}>
-      <div className="modal" role="dialog" aria-label="Налаштування">
+      <div className="modal settings" role="dialog" aria-label="Налаштування">
         <header>
           <h2>Налаштування</h2>
           <button className="icon-btn" onClick={() => setSettingsOpen(false)} aria-label="Закрити">
             ✕
           </button>
         </header>
+        <div className="settings-body">
+        <nav className="settings-nav" aria-label="Розділи налаштувань">
+          {SECTIONS.map((sec) => (
+            <button key={sec.id} className={'settings-tab' + (section === sec.id ? ' active' : '')} onClick={() => setSection(sec.id)}>
+              <span className="settings-tab-icon" aria-hidden>{sec.icon}</span>
+              {sec.label}
+            </button>
+          ))}
+        </nav>
+        <div className="settings-content">
 
-        <section>
+        {section === 'rules' && <section>
           <h3>Правила</h3>
           <div className="row">
             <span className="lbl">Вбудовані</span>
@@ -93,9 +112,8 @@ export function SettingsModal(): JSX.Element | null {
               ))}
             </ul>
           )}
-        </section>
-
-        <section>
+        </section>}
+        {section === 'claude' && <section>
           <h3>Claude і інструменти</h3>
           <PathRow label="Аргументи claude" value={config.claudeArgs} onCommit={(v) => void setConfig({ claudeArgs: v })} />
           <PathRow label="Папка pcbagent" value={config.pcbagentDir} onCommit={(v) => void setConfig({ pcbagentDir: v })} />
@@ -103,9 +121,8 @@ export function SettingsModal(): JSX.Element | null {
           <PathRow label="kicad-cli" value={config.kicadCli} onCommit={(v) => void setConfig({ kicadCli: v })} />
           <PathRow label="KiCad (AppImage)" value={config.kicadLauncher} onCommit={(v) => void setConfig({ kicadLauncher: v })} />
           <p className="muted small">Чат запускає <code>claude -p</code> у папці проекту з MCP-сервером pcbagent; зміни цих полів діють з наступної розмови («Нова розмова»).</p>
-        </section>
-
-        <section>
+        </section>}
+        {section === 'api' && <section>
           <h3>Локальний API</h3>
           <div className="row">
             <label className="check">
@@ -124,9 +141,8 @@ GET  ${api.url}/api/config
 PATCH ${api.url}/api/config          # напр. {"overrides":{"PLANE_CUT":{"enabled":false}}}
 GET  ${api.url}/api/export/pcbagent  # пороги для pcbagent.rules.json
 POST ${api.url}/api/findings         # звіт перевіряча -> лічильники в списку правил`}</pre>
-        </section>
-
-        <section>
+        </section>}
+        {section === 'export' && <section>
           <h3>Конфіг перевіряча</h3>
           <p className="muted small">
             Пороги й вимкнені правила збираються в один файл <code>pcbagent.rules.json</code>, який читає перевіряч плат. Змінених
@@ -145,7 +161,9 @@ POST ${api.url}/api/findings         # звіт перевіряча -> лічи
             </button>
           </div>
           <pre className="json small">{exportPreview}</pre>
-        </section>
+        </section>}
+        </div>
+        </div>
       </div>
     </div>
   )

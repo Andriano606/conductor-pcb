@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AppConfig, Category, EffectiveRule, FindingsReport, KicadStatus, PcbProject, RuleOverride, RulesSnapshot, Severity } from '@shared/types'
+import type { AppConfig, Category, ClaudeProfile, CustomPrompt, EffectiveRule, EnvVar, FindingsReport, KicadStatus, PcbProject, RuleOverride, RulesSnapshot, Severity, UsageWindow } from '@shared/types'
 import type { ApiStatus } from '../../preload'
 
 interface State {
@@ -26,6 +26,10 @@ interface State {
   kicad: Record<string, KicadStatus>
   checking: Record<string, boolean>
   addError: string | null
+  customPrompts: CustomPrompt[]
+  claudeProfiles: ClaudeProfile[]
+  usage: UsageWindow[]
+  confirm: { message: string; resolve: (ok: boolean) => void } | null
 
   load: () => Promise<void>
   applySnapshot: (s: RulesSnapshot) => void
@@ -48,6 +52,17 @@ interface State {
   selectProject: (id: string) => Promise<void>
   refreshKicad: (id: string) => Promise<void>
   runCheck: (id: string) => Promise<void>
+  createCustomPrompt: (title: string, content: string) => Promise<void>
+  updateCustomPrompt: (p: CustomPrompt) => Promise<void>
+  deleteCustomPrompt: (id: string) => Promise<void>
+  createClaudeProfile: (name: string, path: string, env: EnvVar[]) => Promise<void>
+  updateClaudeProfile: (p: ClaudeProfile) => Promise<void>
+  deleteClaudeProfile: (id: string) => Promise<void>
+  setProjectProfiles: (projectId: string, ids: string[]) => Promise<void>
+  rebuildClaudeConfigs: () => Promise<void>
+  setUsage: (w: UsageWindow[]) => void
+  askConfirm: (message: string) => Promise<boolean>
+  resolveConfirm: (ok: boolean) => void
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -72,6 +87,10 @@ export const useStore = create<State>((set, get) => ({
   kicad: {},
   checking: {},
   addError: null,
+  customPrompts: [],
+  claudeProfiles: [],
+  usage: [],
+  confirm: null,
 
   load: async () => {
     const [snap, config, configPath, api, report, projects] = await Promise.all([
@@ -85,7 +104,47 @@ export const useStore = create<State>((set, get) => ({
     const selected = config.lastRuleCode && snap.rules.some((r) => r.code === config.lastRuleCode)
       ? config.lastRuleCode
       : (snap.rules[0]?.code ?? null)
-    set({ ...snapToState(snap), config, configPath, api, report, selected, projects, loaded: true })
+    set({ ...snapToState(snap), config, configPath, api, report, selected, projects, loaded: true,
+      customPrompts: config.customPrompts ?? [], claudeProfiles: config.claudeProfiles ?? [], usage: config.lastUsage ?? [] })
+  },
+  createCustomPrompt: async (title, content) => {
+    await window.api.addPrompt(title, content)
+    set({ customPrompts: await window.api.listPrompts() })
+  },
+  updateCustomPrompt: async (p) => {
+    await window.api.updatePrompt(p)
+    set({ customPrompts: await window.api.listPrompts() })
+  },
+  deleteCustomPrompt: async (id) => {
+    await window.api.removePrompt(id)
+    set({ customPrompts: await window.api.listPrompts() })
+  },
+  createClaudeProfile: async (name, path, env) => {
+    await window.api.addProfile(name, path, env)
+    set({ claudeProfiles: await window.api.listProfiles() })
+  },
+  updateClaudeProfile: async (p) => {
+    await window.api.updateProfile(p)
+    set({ claudeProfiles: await window.api.listProfiles() })
+  },
+  deleteClaudeProfile: async (id) => {
+    await window.api.removeProfile(id)
+    const [claudeProfiles, projects] = await Promise.all([window.api.listProfiles(), window.api.listProjects()])
+    set({ claudeProfiles, projects })
+  },
+  setProjectProfiles: async (projectId, ids) => {
+    await window.api.setProjectProfiles(projectId, ids)
+    set({ projects: await window.api.listProjects() })
+  },
+  rebuildClaudeConfigs: async () => {
+    await window.api.rebuildConfigs()
+  },
+  setUsage: (usage) => set({ usage }),
+  askConfirm: (message) => new Promise<boolean>((resolve) => set({ confirm: { message, resolve } })),
+  resolveConfirm: (ok) => {
+    const c = get().confirm
+    set({ confirm: null })
+    c?.resolve(ok)
   },
   setView: (view) => {
     localStorage.setItem('conductor-pcb.view', view)

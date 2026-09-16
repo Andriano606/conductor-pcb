@@ -18,7 +18,7 @@ Guidance for Claude Code when working in this repository.
    `params[].key` == `pcbagent.checks.CheckConfig` field; `check.kernel` == `Checker.check_<kernel>`.
    Thresholds/enabled/severity can be overridden globally or **per project** (`PcbProject.ruleOverrides`;
    the rules view has a «Пороги для» scope selector; the API takes `?project=<id>`).
-   New rules: the `write-pcb-rule` skill, or «Імпортувати правило» in the app (JSON + preview).
+   New rules: the `kicad-pcb-rules` Claude config (skill `pcb-rule-author`, in `~/Documents/claude-configs`), or «Імпортувати правило» in the app (JSON + preview).
 
 UI strings are Ukrainian; code and comments English. Prerequisites: Node 20+, `claude` CLI on PATH,
 KiCad 10 (AppImage) with the API server enabled, the kicad-ai-layout venv.
@@ -49,8 +49,8 @@ Rebuilding the installed AppImage is the `rebuild-and-restart-app` skill — onl
     migrates from the old `pcb-rules-library` config once.
   - `rulesRepo.ts` bundled `rules/` + user rules dir, watched; `api.ts` local HTTP API (`handle()` is testable without a socket).
   - `claudeChat.ts` — port of conductor-linux's chat (no subagents/workflows): spawns
-    `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio [--resume] --mcp-config <file> --append-system-prompt <text> <claudeArgs>`
-    through the login shell, parses NDJSON (`handleLine`), keeps a `ChatItem[]` transcript per project
+    `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio [--resume] --mcp-config <file> <claudeArgs>`
+    through the login shell (no app-side system prompt: board-work instructions come from the `kicad-pcb-layout` Claude config, skill `pcb-layout-fix`, enabled per project via ⚙ in the composer), parses NDJSON (`handleLine`), keeps a `ChatItem[]` transcript per project
     (persisted in `<userData>/chats/<projectId>.json`), turns `can_use_tool` control requests into
     `ChatPending` (permission / AskUserQuestion), streams sequenced `chat:event`s to the renderer. The
     `initialize` handshake supplies slash commands and models (`meta` event); `/model` and effort are
@@ -58,6 +58,14 @@ Rebuilding the installed AppImage is the `rebuild-and-restart-app` skill — onl
     Attachments: files go as `Файл: <path>` lines, images as base64 image blocks.
   - `projects.ts` — add/remove projects, MCP config file per project (`<userData>/mcp/<id>.json`),
     start/restart the chat with the system prompt, open pcbnew, KiCad status, run the checker CLI.
+    **Claude config profiles** (ported from conductor-linux): `AppConfig.claudeProfiles` is a global list of
+    source folders (skills/commands/agents/CLAUDE.md/settings); each project enables a subset
+    (`PcbProject.claudeConfigProfileIds`). `configMerge.ts` builds `<userData>/claude-configs/<projectId>` from
+    `~/.claude` + the overlays and the chat is spawned with `CLAUDE_CONFIG_DIR` pointing there (`StartOpts.env`).
+  - `usagePoller.ts` — runs `claude -p --output-format json "/usage"` every 30 s, parses the windows, persists
+    them in `AppConfig.lastUsage`, pushes `claude:usage`; the sidebar's bottom-left `UsageMeters` renders them.
+  - Prompt library: `AppConfig.customPrompts`, `$PCB_PROJECT_NAME/$PCB_PROJECT_DIR/$PCB_BOARD_FILE` variables
+    (`src/shared/promptVars.ts`), the 📖 dropdown in the composer inserts them substituted.
 - `src/preload/index.ts` — the single typed `window.api`.
 - `src/renderer/src/` — zustand `store.ts` (rules, config, projects, view) + `chatStore.ts` (transcript mirror);
   `App.tsx` = `ProjectSidebar` (left) · `TopBar` (Чат / Правила tabs) · centre = `ChatView` or the rules view

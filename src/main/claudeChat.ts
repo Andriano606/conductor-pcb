@@ -21,6 +21,8 @@ export interface StartOpts {
   args?: string
   model?: string
   effort?: string
+  /** Extra environment (CLAUDE_CONFIG_DIR of a merged profile dir, profile env vars). */
+  env?: NodeJS.ProcessEnv
 }
 
 interface Entry {
@@ -171,7 +173,7 @@ export function startChat(id: string, opts: StartOpts): void {
   const e = ensure(id)
   if (e.proc) return
   e.opts = opts
-  const env = buildEnv()
+  const env = buildEnv(opts.env ?? {})
   const shell = env.SHELL || '/bin/bash'
   const command = buildCommand(opts)
   console.log(`[chat ${id}] ${command}`)
@@ -202,11 +204,17 @@ export function startChat(id: string, opts: StartOpts): void {
       emitPending(id, e)
     }
     if (code && code !== 0) {
-      const tail = e.stderrTail.trim().split('\n').slice(-3).join('\n')
-      info(id, e, `Claude завершився з кодом ${code}${tail ? `: ${tail}` : ''}. Наступне повідомлення перезапустить сесію.`)
-      if (opts.resume && !e.sessionId) {
-        // the resume failed before init: forget the stale id so the next start is fresh
+      const lines = e.stderrTail.trim().split('\n').filter((l) => l.trim() && !/nvm/i.test(l))
+      const tail = [...new Set(lines)].slice(-2).join('\n')
+      if (/No conversation found/i.test(e.stderrTail)) {
+        // the transcript is not in this config dir: forget the id so the next start is a fresh conversation
+        e.sessionId = undefined
         e.opts = { ...opts, resume: undefined }
+        sessionIdSink(id, '')
+        info(id, e, 'Попередню розмову не знайдено в цій конфігурації Claude — наступне повідомлення почне нову.')
+      } else {
+        info(id, e, `Claude завершився з кодом ${code}${tail ? `: ${tail}` : ''}. Наступне повідомлення перезапустить сесію.`)
+        if (opts.resume && !e.sessionId) e.opts = { ...opts, resume: undefined }
       }
     }
     saveNow(id, e)

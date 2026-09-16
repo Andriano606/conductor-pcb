@@ -2,6 +2,7 @@ import React from 'react'
 import type { PcbProject } from '@shared/types'
 import { useStore } from '../store'
 import { useChatStore } from '../chatStore'
+import { UsageMeters } from './UsageMeters'
 
 export function ProjectSidebar(): JSX.Element {
   const projects = useStore((s) => s.projects)
@@ -9,15 +10,18 @@ export function ProjectSidebar(): JSX.Element {
   const selectProject = useStore((s) => s.selectProject)
   const addProject = useStore((s) => s.addProject)
   const deleteProject = useStore((s) => s.deleteProject)
-  const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const chats = useChatStore((s) => s.chats)
   const addError = useStore((s) => s.addError)
+  const setSettingsOpen = useStore((s) => s.setSettingsOpen)
 
   return (
     <aside className="left" aria-label="Проекти">
       <div className="left-header">
         <div className="brand">Conductor PCB</div>
-        <button className="icon-btn" title="Додати проект KiCad (папка з .kicad_pro)" onClick={() => void addProject()} aria-label="Додати проект">+</button>
+        <div className="row-tight">
+          <button className="icon-btn" title="Додати проект KiCad (папка з .kicad_pro)" onClick={() => void addProject()} aria-label="Додати проект">+</button>
+          <button className="icon-btn" title="Налаштування" onClick={() => setSettingsOpen(true)} aria-label="Налаштування">⚙</button>
+        </div>
       </div>
       <div className="project-list">
         {projects.length === 0 && <div className="muted pad small">Немає проектів. Натисніть «+» і виберіть папку з файлом .kicad_pro.</div>}
@@ -26,9 +30,7 @@ export function ProjectSidebar(): JSX.Element {
         ))}
         {addError && <div className="err-badge pad">{addError}</div>}
       </div>
-      <div className="left-footer">
-        <button className="icon-btn" title="Налаштування" onClick={() => setSettingsOpen(true)} aria-label="Налаштування">⚙</button>
-      </div>
+      <UsageMeters />
     </aside>
   )
 }

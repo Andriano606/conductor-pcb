@@ -5,6 +5,9 @@ import type { ChatAttachment, ChatItem, ChatPending, ChatQuestion, PcbProject } 
 import { useChatStore } from '../chatStore'
 import { useStore } from '../store'
 import { Dropdown } from './Dropdown'
+import { PromptLibraryModal } from './PromptLibraryModal'
+import { ClaudeProfilesModal } from './ClaudeProfilesModal'
+import { promptVarValues, substitutePromptVars } from '@shared/promptVars'
 
 const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }
 const MAX_INPUT_HEIGHT = 320
@@ -33,7 +36,30 @@ export function ChatView({ project }: { project: PcbProject }): JSX.Element {
   const [qAnswers, setQAnswers] = useState<Record<string, string>>({})
   const [multiSel, setMultiSel] = useState<string[]>([])
   const [dragOver, setDragOver] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [profilesOpen, setProfilesOpen] = useState(false)
+  const customPrompts = useStore((s) => s.customPrompts)
+  const claudeProfiles = useStore((s) => s.claudeProfiles)
+  const setProjectProfiles = useStore((s) => s.setProjectProfiles)
+  const [stagedProfileIds, setStagedProfileIds] = useState<string[] | null>(null)
+  const currentProfileIds = project.claudeConfigProfileIds ?? []
+  const shownProfileIds = stagedProfileIds ?? currentProfileIds
+  const applyStagedProfiles = (): void => {
+    setStagedProfileIds((staged) => {
+      if (staged && [...staged].sort().join(',') !== [...currentProfileIds].sort().join(',')) void setProjectProfiles(id, staged)
+      return null
+    })
+  }
+  const stageProfileFlip = (pid: string): void => setStagedProfileIds((staged) => {
+    const cur = staged ?? currentProfileIds
+    return cur.includes(pid) ? cur.filter((x) => x !== pid) : [...cur, pid]
+  })
   const setDraft = (t: string): void => setDraftStore(id, t)
+  const insertPrompt = (text: string): void => {
+    const body = substitutePromptVars(text, promptVarValues(project))
+    setDraft(draft.trim() ? `${draft}\n${body}` : body)
+    inputRef.current?.focus()
+  }
 
   useEffect(() => {
     void attach(id)
@@ -296,6 +322,18 @@ export function ChatView({ project }: { project: PcbProject }): JSX.Element {
             )}
             <div className="chat-toolbar">
               <div className="chat-tools-left">
+                <Dropdown triggerClass="chat-iconbtn" triggerTitle="Бібліотека промтів" triggerContent={<LibraryIcon />} direction="up"
+                  items={[
+                    ...customPrompts.map((p) => ({ key: p.id, label: p.title, onClick: () => insertPrompt(p.content) })),
+                    { key: '__manage__', label: 'Керувати промтами…', separatorBefore: customPrompts.length > 0, onClick: () => setLibraryOpen(true) }
+                  ]} />
+                <Dropdown triggerClass="chat-iconbtn" triggerTitle="Конфігурація Claude (скіли, команди) для цього проекту" triggerContent={<GearIcon />} direction="up" menuClass="profiles-menu" onClose={applyStagedProfiles}
+                  items={[
+                    { key: '__none__', label: 'Стандартний ~/.claude (вимкнути всі)', checked: shownProfileIds.length === 0, keepOpen: true, onClick: () => setStagedProfileIds([]) },
+                    ...claudeProfiles.map((p) => ({ key: p.id, label: p.name, checked: shownProfileIds.includes(p.id), toggle: true, keepOpen: true, onClick: () => stageProfileFlip(p.id) })),
+                    { key: '__manage__', label: 'Керувати конфігураціями…', separatorBefore: true, onClick: () => setProfilesOpen(true) }
+                  ]} />
+                {modelState && modelState.models.length > 0 && <span className="chat-tools-divider" />}
                 {modelState && modelState.models.length > 0 && (
                   <Dropdown triggerClass="chat-modelbtn" triggerTitle={busy ? 'Зміна моделі перезапускає сесію — зачекайте завершення відповіді' : 'Модель Claude для цієї сесії'}
                     triggerContent={currentModel?.displayName ?? modelState.model ?? 'модель'} direction="up" disabled={busy}
@@ -327,6 +365,8 @@ export function ChatView({ project }: { project: PcbProject }): JSX.Element {
           </div>
         </div>
       </div>
+      {libraryOpen && <PromptLibraryModal project={project} onClose={() => setLibraryOpen(false)} onInsert={(t) => { insertPrompt(t); setLibraryOpen(false) }} />}
+      {profilesOpen && <ClaudeProfilesModal project={project} onClose={() => setProfilesOpen(false)} />}
     </div>
   )
 }
@@ -388,6 +428,12 @@ function ItemView({ item }: { item: ChatItem }): JSX.Element {
   )
 }
 
+function LibraryIcon(): JSX.Element {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
+}
+function GearIcon(): JSX.Element {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+}
 function PlusIcon(): JSX.Element {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
 }

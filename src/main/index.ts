@@ -7,6 +7,8 @@ import { apiStatus, setConfigListener, setReportListener, setScreenshotProvider,
 import { writeFileSync } from 'fs'
 import { killAllChats, onChatBusy, onChatEvent, onChatParams, onChatSessionId, setChatStorageDir } from './claudeChat'
 import { updateProject } from './projects'
+import { onUsage, startUsagePolling, stopUsagePolling } from './usagePoller'
+import { setConfig } from './store'
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -52,11 +54,16 @@ void app.whenReady().then(async () => {
   onChatEvent((id, seq, ev) => {
     if (!win.isDestroyed()) win.webContents.send('chat:event', { id, seq, ev })
   })
-  onChatSessionId((id, sessionId) => updateProject(id, { claudeSessionId: sessionId }))
+  onChatSessionId((id, sessionId) => updateProject(id, { claudeSessionId: sessionId || undefined }))
   onChatParams((id, params) => updateProject(id, { claudeModel: params.model, claudeEffort: params.effort }))
   onChatBusy((id, busy) => {
     if (!win.isDestroyed()) win.webContents.send('chat:busy', { id, busy })
   })
+  onUsage((windows) => {
+    setConfig({ lastUsage: windows })
+    if (!win.isDestroyed()) win.webContents.send('claude:usage', windows)
+  })
+  startUsagePolling()
   onRulesChanged(() => {
     if (!win.isDestroyed()) win.webContents.send('rules:changed', snapshot())
   })
@@ -88,6 +95,7 @@ void app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
+  stopUsagePolling()
   stopWatching()
   stopApi()
   killAllChats()

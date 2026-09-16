@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AppConfig, RuleOverride, ChatAttachment, ChatAnswer, ChatEventPayload, ChatSnapshot, CheckerConfigExport, FindingsReport, KicadStatus, PcbProject, Rule, RulesSnapshot } from '../shared/types'
+import type { AppConfig, RuleOverride, ChatAttachment, ChatAnswer, ClaudeProfile, CustomPrompt, EnvVar, UsageWindow, ChatEventPayload, ChatSnapshot, CheckerConfigExport, FindingsReport, KicadStatus, PcbProject, Rule, RulesSnapshot } from '../shared/types'
 
 export interface ApiStatus {
   running: boolean
@@ -90,6 +90,28 @@ const api = {
     const h = (_e: unknown, v: 'chat' | 'rules'): void => fn(v)
     ipcRenderer.on('ui:setView', h)
     return () => ipcRenderer.removeListener('ui:setView', h)
+  },
+  // prompt library
+  listPrompts: (): Promise<CustomPrompt[]> => ipcRenderer.invoke('prompts:list'),
+  addPrompt: (title: string, content: string): Promise<CustomPrompt> => ipcRenderer.invoke('prompts:add', title, content),
+  updatePrompt: (p: CustomPrompt): Promise<void> => ipcRenderer.invoke('prompts:update', p),
+  removePrompt: (id: string): Promise<void> => ipcRenderer.invoke('prompts:remove', id),
+  // Claude config profiles
+  listProfiles: (): Promise<ClaudeProfile[]> => ipcRenderer.invoke('profiles:list'),
+  addProfile: (name: string, path: string, env: EnvVar[]): Promise<ClaudeProfile> => ipcRenderer.invoke('profiles:add', name, path, env),
+  updateProfile: (p: ClaudeProfile): Promise<void> => ipcRenderer.invoke('profiles:update', p),
+  removeProfile: (id: string): Promise<void> => ipcRenderer.invoke('profiles:remove', id),
+  isClaudeConfigDir: (dir: string): Promise<boolean> => ipcRenderer.invoke('profiles:isConfigDir', dir),
+  setProjectProfiles: (projectId: string, ids: string[]): Promise<boolean> => ipcRenderer.invoke('profiles:setForProject', projectId, ids),
+  rebuildConfigs: (): Promise<number> => ipcRenderer.invoke('profiles:rebuild'),
+  homeDir: (): Promise<string> => ipcRenderer.invoke('sys:homeDir'),
+  // usage limits
+  getUsage: (): Promise<UsageWindow[]> => ipcRenderer.invoke('usage:get'),
+  refreshUsage: (force?: boolean): void => ipcRenderer.send('usage:refresh', force),
+  onUsage: (fn: (w: UsageWindow[]) => void): (() => void) => {
+    const h = (_e: unknown, w: UsageWindow[]): void => fn(w)
+    ipcRenderer.on('claude:usage', h)
+    return () => ipcRenderer.removeListener('claude:usage', h)
   },
   copyText: (text: string): void => ipcRenderer.send('sys:copy', text),
   openExternal: (url: string): void => ipcRenderer.send('sys:openExternal', url)

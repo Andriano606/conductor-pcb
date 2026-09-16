@@ -184,6 +184,9 @@ export function mergeConfig(base: AppConfig, patch: Partial<AppConfig>): AppConf
   }
   if (!Number.isInteger(next.api.port) || next.api.port < 1 || next.api.port > 65535) next.api.port = base.api.port
   if (!Array.isArray(next.projects)) next.projects = base.projects ?? []
+  if (!Array.isArray(next.customPrompts)) next.customPrompts = base.customPrompts ?? []
+  if (!Array.isArray(next.claudeProfiles)) next.claudeProfiles = base.claudeProfiles ?? []
+  if (!Array.isArray(next.lastUsage)) next.lastUsage = base.lastUsage ?? []
   return next
 }
 
@@ -197,7 +200,10 @@ export function defaultConfig(homeDir: string): AppConfig {
     pcbagentDir: `${homeDir}/Documents/Embedded/kicad-ai-layout`,
     pythonPath: `${homeDir}/Documents/Embedded/kicad-ai-layout/.venv/bin/python`,
     kicadCli: `${homeDir}/.local/bin/kicad-cli`,
-    kicadLauncher: `${homeDir}/Applications/kicad-10.0.6-x86_64.AppImage`
+    kicadLauncher: `${homeDir}/Applications/kicad-10.0.6-x86_64.AppImage`,
+    customPrompts: [],
+    claudeProfiles: [],
+    lastUsage: []
   }
 }
 

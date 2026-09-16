@@ -13,7 +13,6 @@ const ENGINE_LABEL = { pcbagent: 'pcbagent (наш перевіряч)', 'kicad-
 
 export function RuleView({ rule }: { rule: EffectiveRule }): JSX.Element {
   const setOverride = useStore((s) => s.setOverride)
-  const resetOverride = useStore((s) => s.resetOverride)
   const report = useStore((s) => s.report)
   const config = useStore((s) => s.config)
   const ruleScope = useStore((s) => s.ruleScope)
@@ -21,7 +20,6 @@ export function RuleView({ rule }: { rule: EffectiveRule }): JSX.Element {
   const [showJson, setShowJson] = useState(false)
   const hits = report?.findings.filter((f) => f.code === rule.code) ?? []
   const scopeProject = ruleScope === 'global' ? null : projects.find((p) => p.id === ruleScope)
-  const overridden = scopeProject ? !!scopeProject.ruleOverrides?.[rule.code] : !!config?.overrides[rule.code]
   const cat = CATEGORIES.find((c) => c.id === rule.category)?.label ?? rule.category
 
   return (
@@ -53,11 +51,6 @@ export function RuleView({ rule }: { rule: EffectiveRule }): JSX.Element {
             <Toggle checked={rule.effective.enabled} onChange={(v) => void setOverride(rule.code, { enabled: v })} label="Увімкнено" />
           </label>
           {scopeProject && <span className="scope-badge" title="Зміни діють тільки для цього проекту">проект: {scopeProject.name}</span>}
-          {overridden && (
-            <button className="btn subtle" onClick={() => void resetOverride(rule.code)} title={scopeProject ? 'Прибрати індивідуальні налаштування проекту' : 'Повернути значення з файлу правила'}>
-              Скинути зміни
-            </button>
-          )}
         </div>
       </header>
 

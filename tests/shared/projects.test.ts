@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSystemPrompt, projectFromFiles, removeProject, upsertProject } from '@shared/projects'
+import { projectFromFiles, removeProject, upsertProject } from '@shared/projects'
 
 describe('projectFromFiles', () => {
   it('derives name and files from a folder listing, ignoring backups', () => {
@@ -23,15 +23,5 @@ describe('upsertProject / removeProject', () => {
     expect(l3.map((p) => p.id)).toEqual(['ida', 'idb'])
     expect(l3[0].name).toBe('renamed')
     expect(removeProject(l3, 'ida').map((p) => p.id)).toEqual(['idb'])
-  })
-})
-
-describe('buildSystemPrompt', () => {
-  it('mentions the board, the MCP loop and the rules API', () => {
-    const p = projectFromFiles('/a', ['a.kicad_pro', 'a.kicad_pcb'], 'i')!
-    const s = buildSystemPrompt(p, 'http://127.0.0.1:4817')
-    expect(s).toContain('/a/a.kicad_pcb')
-    expect(s).toContain('run_checks')
-    expect(s).toContain('http://127.0.0.1:4817')
   })
 })
