@@ -7,10 +7,15 @@ description: Run AFTER finishing work on a feature in conductor-pcb. Repackages 
 
 `npm run build` only refreshes `out/` — it does **not** repackage the AppImage.
 The user launches Conductor from the **application-manager icon**, whose
-`.desktop` entry runs the packaged `dist/Conductor PCB-*.AppImage`. So after
-finishing a feature you must **repackage the AppImage, point the icon at the
-fresh build, and restart the running instance** — otherwise the icon keeps
-launching the old code.
+`.desktop` entry runs `scripts/launch.sh`. That launcher picks the newest
+`dist/Conductor PCB-*.AppImage` and, if any file under `src/`, `rules/`,
+`schema/`, `build/` or the build configs is newer than it, runs `npm run dist`
+itself before starting (desktop notifications + `~/.cache/conductor-pcb/rebuild.log`).
+`npm run dist` also has a `postdist` hook that re-runs `scripts/install-desktop.sh`.
+So a forgotten repackage no longer leaves the icon on an old build — but the
+user then waits ~1 min at click time. After finishing a feature you should still
+**repackage the AppImage and restart the running instance** so the next click
+is instant and the running app is the new code.
 
 ## When to run
 
@@ -34,13 +39,12 @@ This rebuilds `out/`, writes a fresh
 ```bash
 bash scripts/install-desktop.sh
 ```
-Always run this so the launcher icon points at the just-built AppImage. The
-script rewrites `~/.local/share/applications/conductor-pcb.desktop` (its `Exec`
-→ the newest `dist/*.AppImage`), copies the icon, and refreshes the desktop &
-icon caches. The AppImage filename embeds the `package.json` version, so a
-version bump changes the path — without this step the icon would still launch the
-**old** versioned file. Re-running it is idempotent and cheap, so do it every
-time. Confirm the reported `exec:` path matches `ls -t dist/*.AppImage | head -1`.
+`npm run dist` already runs this via `postdist`; run it again only if the
+`.desktop` file is missing or was edited by hand. The script rewrites
+`~/.local/share/applications/conductor-pcb.desktop` (`Exec` → `scripts/launch.sh`),
+copies the icon, and refreshes the desktop & icon caches. Idempotent and cheap.
+Confirm the reported `exec:` line names the launcher and the newest
+`dist/*.AppImage`.
 
 ### 3. Restart the running instance
 
