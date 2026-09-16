@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AppConfig, RuleOverride, ChatAttachment, ChatAnswer, ClaudeProfile, CustomPrompt, EnvVar, UsageWindow, ChatEventPayload, ChatSnapshot, CheckerConfigExport, FindingsReport, KicadStatus, PcbProject, Rule, RulesSnapshot } from '../shared/types'
+import type { AppConfig, RuleOverride, ChatAttachment, ChatAnswer, ChatSession, ClaudeProfile, CustomPrompt, EnvVar, UsageWindow, ChatEventPayload, ChatSnapshot, CheckerConfigExport, FindingsReport, KicadStatus, PcbProject, Rule, RulesSnapshot } from '../shared/types'
 
 export interface ApiStatus {
   running: boolean
@@ -80,7 +80,10 @@ const api = {
   answerChat: (id: string, answer: ChatAnswer): void => ipcRenderer.send('chat:answer', id, answer),
   interruptChat: (id: string): void => ipcRenderer.send('chat:interrupt', id),
   restartChat: (id: string): Promise<boolean> => ipcRenderer.invoke('chat:restart', id),
-  clearChat: (id: string): Promise<void> => ipcRenderer.invoke('chat:clear', id),
+  // Chat sessions (tabs; multiple per project). The session id is the chat id above.
+  createSession: (projectId: string): Promise<ChatSession | undefined> => ipcRenderer.invoke('session:create', projectId),
+  closeSession: (sessionId: string): Promise<boolean> => ipcRenderer.invoke('session:close', sessionId),
+  renameSession: (sessionId: string, title: string): Promise<void> => ipcRenderer.invoke('session:rename', sessionId, title),
   onChatEvent: (fn: (p: ChatEventPayload) => void): (() => void) => {
     const h = (_e: unknown, p: ChatEventPayload): void => fn(p)
     ipcRenderer.on('chat:event', h)

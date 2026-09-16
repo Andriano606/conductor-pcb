@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { ChatAttachment, ChatItem, ChatPending, ChatQuestion, PcbProject } from '@shared/types'
-import { useChatStore } from '../chatStore'
+import type { ChatAttachment, ChatItem, ChatPending, ChatQuestion, ChatSession, PcbProject } from '@shared/types'
+import { projectBusy, useChatStore } from '../chatStore'
+import { SessionTabs } from './SessionTabs'
 import { useStore } from '../store'
 import { Dropdown } from './Dropdown'
 import { PromptLibraryModal } from './PromptLibraryModal'
@@ -12,9 +13,12 @@ import { promptVarValues, substitutePromptVars } from '@shared/promptVars'
 const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }
 const MAX_INPUT_HEIGHT = 320
 
-export function ChatView({ project }: { project: PcbProject }): JSX.Element {
-  const id = project.id
+/** The chat of one session tab (`session`) of `project`; the session id is the chat key. */
+export function ChatView({ project, session }: { project: PcbProject; session: ChatSession }): JSX.Element {
+  const id = session.id
+  const pid = project.id
   const chat = useChatStore((s) => s.chats[id])
+  const anyBusy = useChatStore((s) => projectBusy(s.chats, project))
   const attach = useChatStore((s) => s.attach)
   const draft = useChatStore((s) => s.drafts[id] ?? '')
   const setDraftStore = useChatStore((s) => s.setDraft)
@@ -22,10 +26,10 @@ export function ChatView({ project }: { project: PcbProject }): JSX.Element {
   const setAttachments = useChatStore((s) => s.setAttachments)
   const history = useChatStore((s) => s.inputHistory)
   const pushInputHistory = useChatStore((s) => s.pushInputHistory)
-  const kicad = useStore((s) => s.kicad[id])
+  const kicad = useStore((s) => s.kicad[pid])
   const refreshKicad = useStore((s) => s.refreshKicad)
   const runCheck = useStore((s) => s.runCheck)
-  const checking = useStore((s) => s.checking[id])
+  const checking = useStore((s) => s.checking[pid])
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [histIndex, setHistIndex] = useState<number | null>(null)
@@ -46,7 +50,7 @@ export function ChatView({ project }: { project: PcbProject }): JSX.Element {
   const shownProfileIds = stagedProfileIds ?? currentProfileIds
   const applyStagedProfiles = (): void => {
     setStagedProfileIds((staged) => {
-      if (staged && [...staged].sort().join(',') !== [...currentProfileIds].sort().join(',')) void setProjectProfiles(id, staged)
+      if (staged && [...staged].sort().join(',') !== [...currentProfileIds].sort().join(',')) void setProjectProfiles(pid, staged)
       return null
     })
   }
@@ -63,10 +67,12 @@ export function ChatView({ project }: { project: PcbProject }): JSX.Element {
 
   useEffect(() => {
     void attach(id)
-    void refreshKicad(id)
-    const t = setInterval(() => void refreshKicad(id), 5000)
+  }, [id, attach])
+  useEffect(() => {
+    void refreshKicad(pid)
+    const t = setInterval(() => void refreshKicad(pid), 5000)
     return () => clearInterval(t)
-  }, [id, attach, refreshKicad])
+  }, [pid, refreshKicad])
 
   const items = chat?.items ?? []
   const busy = chat?.busy ?? false
@@ -246,9 +252,8 @@ export function ChatView({ project }: { project: PcbProject }): JSX.Element {
         <div className="chat-actions">
           <span className={'api-dot' + (kicad?.running ? ' on' : '')} title="KiCad pcbnew з цією платою" />
           <span className="muted small">{kicad?.running ? 'KiCad відкритий' : 'KiCad не запущений'}</span>
-          <button className="btn subtle" onClick={() => void window.api.openKicad(id)}>Відкрити в KiCad</button>
-          <button className="btn subtle" disabled={!!checking} onClick={() => void runCheck(id)}>{checking ? 'Перевіряю…' : 'Перевірити плату'}</button>
-          <button className="btn subtle" title="Почати нову розмову" onClick={() => void window.api.clearChat(id)}>Нова розмова</button>
+          <button className="btn subtle" onClick={() => void window.api.openKicad(pid)}>Відкрити в KiCad</button>
+          <button className="btn subtle" disabled={!!checking} onClick={() => void runCheck(pid)}>{checking ? 'Перевіряю…' : 'Перевірити плату'}</button>
         </div>
       </div>
       <div className="chat-scroll" ref={listRef}>
@@ -322,12 +327,14 @@ export function ChatView({ project }: { project: PcbProject }): JSX.Element {
             )}
             <div className="chat-toolbar">
               <div className="chat-tools-left">
+                <SessionTabs project={project} activeSessionId={id} />
+                <span className="chat-tools-divider" />
                 <Dropdown triggerClass="chat-iconbtn" triggerTitle="Бібліотека промтів" triggerContent={<LibraryIcon />} direction="up"
                   items={[
                     ...customPrompts.map((p) => ({ key: p.id, label: p.title, onClick: () => insertPrompt(p.content) })),
                     { key: '__manage__', label: 'Керувати промтами…', separatorBefore: customPrompts.length > 0, onClick: () => setLibraryOpen(true) }
                   ]} />
-                <Dropdown triggerClass="chat-iconbtn" triggerTitle="Конфігурація Claude (скіли, команди) для цього проекту" triggerContent={<GearIcon />} direction="up" menuClass="profiles-menu" onClose={applyStagedProfiles}
+                <Dropdown triggerClass="chat-iconbtn" triggerTitle={anyBusy ? 'Конфігурація Claude для цього проекту (зміна перезапустить усі його сесії)' : 'Конфігурація Claude (скіли, команди) для цього проекту'} triggerContent={<GearIcon />} direction="up" menuClass="profiles-menu" onClose={applyStagedProfiles}
                   items={[
                     { key: '__none__', label: 'Стандартний ~/.claude (вимкнути всі)', checked: shownProfileIds.length === 0, keepOpen: true, onClick: () => setStagedProfileIds([]) },
                     ...claudeProfiles.map((p) => ({ key: p.id, label: p.name, checked: shownProfileIds.includes(p.id), toggle: true, keepOpen: true, onClick: () => stageProfileFlip(p.id) })),

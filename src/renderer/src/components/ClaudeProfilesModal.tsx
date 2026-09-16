@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import type { ClaudeProfile, EnvVar, PcbProject } from '@shared/types'
 import { useStore } from '../store'
-import { useChatStore } from '../chatStore'
+import { projectBusy, useChatStore } from '../chatStore'
 import { Toggle } from './Toggle'
 
 /**
@@ -17,7 +17,7 @@ export function ClaudeProfilesModal({ project, onClose }: { project: PcbProject;
   const setProjectProfiles = useStore((s) => s.setProjectProfiles)
   const rebuildClaudeConfigs = useStore((s) => s.rebuildClaudeConfigs)
   const askConfirm = useStore((s) => s.askConfirm)
-  const busy = useChatStore((s) => !!s.chats[project.id]?.busy)
+  const busy = useChatStore((s) => projectBusy(s.chats, project))
   const currentIds = project.claudeConfigProfileIds ?? []
   const currentKey = [...currentIds].sort().join(',')
   const [enabledIds, setEnabledIds] = useState<Set<string>>(new Set(currentIds))

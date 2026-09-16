@@ -8,7 +8,8 @@ import { useChatStore } from '../../src/renderer/src/chatStore'
 import { useStore } from '../../src/renderer/src/store'
 import type { PcbProject } from '@shared/types'
 
-const project: PcbProject = { id: 'p1', name: 'board', dir: '/x/board', proFile: '/x/board/board.kicad_pro', boardFile: '/x/board/board.kicad_pcb', createdAt: 1 }
+const session = { id: 'p1', createdAt: 1 }
+const project: PcbProject = { id: 'p1', name: 'board', dir: '/x/board', proFile: '/x/board/board.kicad_pro', boardFile: '/x/board/board.kicad_pcb', createdAt: 1, sessions: [session] }
 
 describe('ChatView', () => {
   const api = {
@@ -18,7 +19,9 @@ describe('ChatView', () => {
     answerChat: vi.fn(),
     interruptChat: vi.fn(),
     openKicad: vi.fn(),
-    clearChat: vi.fn(),
+    createSession: vi.fn(),
+    closeSession: vi.fn(),
+    renameSession: vi.fn(),
     pickFiles: vi.fn().mockResolvedValue([]),
     pathForFile: () => ''
   }
@@ -28,8 +31,10 @@ describe('ChatView', () => {
     useStore.setState({ kicad: {}, checking: {} })
   })
   it('sends the draft on Enter and renders streamed items and a permission prompt', async () => {
-    render(<ChatView project={project} />)
+    render(<ChatView project={project} session={session} />)
     const ta = await screen.findByPlaceholderText(/Що змінити на платі/)
+    expect(screen.queryByText('Нова розмова')).not.toBeInTheDocument()
+    expect(screen.getByText('Сесія 1')).toBeInTheDocument()
     fireEvent.change(ta, { target: { value: 'перевір плату' } })
     fireEvent.keyDown(ta, { key: 'Enter' })
     expect(api.sendChat).toHaveBeenCalledWith('p1', 'перевір плату')
@@ -47,6 +52,17 @@ describe('ChatView', () => {
     fireEvent.click(screen.getByText(/Дозволити/))
     expect(api.answerChat).toHaveBeenCalledWith('p1', { kind: 'permission', requestId: 'r', allow: true })
   })
+  it('is keyed by the session tab, not the project', async () => {
+    const tab2 = { id: 'tab2', createdAt: 2, title: 'NRST' }
+    render(<ChatView project={{ ...project, sessions: [session, tab2] }} session={tab2} />)
+    const ta = await screen.findByPlaceholderText(/Що змінити на платі/)
+    expect(api.attachChat).toHaveBeenCalledWith('tab2')
+    fireEvent.change(ta, { target: { value: 'hi' } })
+    fireEvent.keyDown(ta, { key: 'Enter' })
+    expect(api.sendChat).toHaveBeenCalledWith('tab2', 'hi')
+    expect(screen.getByText('NRST')).toBeInTheDocument()
+    expect(api.kicadStatus).toHaveBeenCalledWith('p1')
+  })
   it('re-attaches on a sequence gap', () => {
     const apply = useChatStore.getState().applyEvent
     apply({ id: 'p9', seq: 5, ev: { type: 'busy', busy: true } })
@@ -63,7 +79,9 @@ describe('ProjectSidebar', () => {
       selectProject,
       addError: null
     })
-    useChatStore.setState({ chats: { p1: { items: [], pending: null, busy: true, seq: 0, running: true } } })
+    // Busy comes from any session tab of the project, not from the project id itself.
+    useStore.setState({ projects: [{ ...project, sessions: [session, { id: 'tab2', createdAt: 2 }], lastCheck: { generated: 'g', summary: { error: 1, warning: 2, info: 3 } } }] })
+    useChatStore.setState({ chats: { tab2: { items: [], pending: null, busy: true, seq: 0, running: true, commands: [], modelState: null } } })
     render(<ProjectSidebar />)
     expect(screen.getByText('board')).toBeInTheDocument()
     expect(screen.getByText('1')).toBeInTheDocument()

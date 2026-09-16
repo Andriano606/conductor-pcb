@@ -5,7 +5,8 @@ import { exportCheckerConfig } from '../shared/rules'
 import { getConfig, setConfig } from './store'
 import { getRule, getRules, saveUserRule, deleteUserRule, snapshot } from './rulesRepo'
 import { attachChat, sendChatMessage, interruptChat } from './claudeChat'
-import { startProjectChat } from './projects'
+import { startSessionChat } from './projects'
+import { findSession } from '../shared/projects'
 import { app } from 'electron'
 
 /**
@@ -22,9 +23,10 @@ import { app } from 'electron'
  *   POST /api/findings              → store the latest checker report (FindingsReport); app shows it
  *   GET  /api/findings              → the latest stored report or null
  *   GET  /api/projects              → registered KiCad projects
- *   GET  /api/chat/:projectId       → chat snapshot (items, busy, pending, running)
- *   POST /api/chat/:projectId/send  → { text } send a message to that project's Claude (starts it if needed)
- *   POST /api/chat/:projectId/interrupt
+ *   GET  /api/chat/:id              → chat snapshot (items, busy, pending, running); `id` is a session (tab)
+ *                                     id, or a project id meaning its first session tab
+ *   POST /api/chat/:id/send         → { text } send a message to that session's Claude (starts it if needed)
+ *   POST /api/chat/:id/interrupt
  *
  * Bound to 127.0.0.1 by default; there is no auth because it never leaves the machine.
  */
@@ -155,17 +157,18 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     }
     const cm = path.match(/^\/api\/chat\/([A-Za-z0-9_-]+)(?:\/(send|interrupt))?$/)
     if (cm) {
-      const pid = cm[1]
-      if (!getConfig().projects.some((p) => p.id === pid)) return send(res, 404, { error: `no project ${pid}` })
-      if (!cm[2] && method === 'GET') return send(res, 200, attachChat(pid))
+      const projects = getConfig().projects
+      const sid = findSession(projects, cm[1])?.session.id ?? projects.find((p) => p.id === cm[1])?.sessions[0]?.id
+      if (!sid) return send(res, 404, { error: `no project or session ${cm[1]}` })
+      if (!cm[2] && method === 'GET') return send(res, 200, attachChat(sid))
       if (cm[2] === 'send' && method === 'POST') {
         const body = (await readBody(req)) as { text?: string }
         if (!body?.text) return send(res, 400, { error: 'body must be { text }' })
-        sendChatMessage(pid, body.text, () => startProjectChat(pid, app.getPath('userData')))
+        sendChatMessage(sid, body.text, () => startSessionChat(sid, app.getPath('userData')))
         return send(res, 200, { sent: true })
       }
       if (cm[2] === 'interrupt' && method === 'POST') {
-        interruptChat(pid)
+        interruptChat(sid)
         return send(res, 200, { interrupted: true })
       }
     }

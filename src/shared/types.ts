@@ -214,6 +214,26 @@ export interface RulesSnapshot {
 // ---------------------------------------------------------------- Conductor PCB: projects + chat
 
 /** A KiCad project registered in the left sidebar. */
+/**
+ * One Claude chat session (a tab) inside a project. A project owns one or more of these;
+ * each is an independent `claude` process with its own transcript. The session `id` is the
+ * opaque chat key used everywhere (the entries Map in claudeChat.ts, the chats/<id>.json
+ * transcript file, the chat IPC channels and the renderer chatStore). The first session of a
+ * migrated project reuses the project id as its session id so existing transcripts keep working.
+ * Same model as conductor-linux's ChatSession.
+ */
+export interface ChatSession {
+  id: string
+  /** User-chosen label; falls back to "Сесія N" by position when unset. */
+  title?: string
+  createdAt: number
+  /** Claude session id from the CLI's init event, used for --resume after a restart. */
+  claudeSessionId?: string
+  /** Runtime knobs chosen in the chat toolbar (persisted, re-applied on respawn). */
+  claudeModel?: string
+  claudeEffort?: string
+}
+
 export interface PcbProject {
   id: string
   name: string
@@ -222,13 +242,15 @@ export interface PcbProject {
   proFile: string
   boardFile: string
   createdAt: number
-  /** Claude session id from the CLI's init event, used for --resume after a restart. */
+  /** The chat sessions (tabs) of this project; never empty once loaded (see migrateSessions). */
+  sessions: ChatSession[]
+  /** @deprecated pre-tabs field, migrated into sessions[0] on load. */
   claudeSessionId?: string
   /** Last checker run summary, shown in the sidebar. */
   lastCheck?: { generated: string; summary: Record<Severity, number> }
   /** Per-project rule overrides, applied on top of the global ones. */
   ruleOverrides?: Record<string, RuleOverride>
-  /** Runtime knobs chosen in the chat toolbar (persisted, re-applied on respawn). */
+  /** @deprecated pre-tabs fields, migrated into sessions[0] on load. */
   claudeModel?: string
   claudeEffort?: string
   /** Ids of the ClaudeProfile(s) enabled for this project's chat (empty = plain ~/.claude). */

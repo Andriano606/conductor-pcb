@@ -14,7 +14,7 @@ describe('PromptLibraryModal', () => {
     const create = vi.fn().mockResolvedValue(undefined)
     const onInsert = vi.fn()
     useStore.setState({ customPrompts: [{ id: 'p', title: 'Перевірка', content: 'Перевір $PCB_PROJECT_NAME', createdAt: 0, updatedAt: 0 }], createCustomPrompt: create })
-    render(<PromptLibraryModal onInsert={onInsert} onClose={() => {}} project={{ id: 'x', name: 'brd', dir: '/d', proFile: '', boardFile: '/d/b.kicad_pcb', createdAt: 0 }} />)
+    render(<PromptLibraryModal onInsert={onInsert} onClose={() => {}} project={{ id: 'x', name: 'brd', dir: '/d', proFile: '', boardFile: '/d/b.kicad_pcb', createdAt: 0, sessions: [] }} />)
     expect(screen.getByText('Перевірка')).toBeInTheDocument()
     fireEvent.click(screen.getByTitle('Вставити в поле вводу'))
     expect(onInsert).toHaveBeenCalledWith('Перевір $PCB_PROJECT_NAME')

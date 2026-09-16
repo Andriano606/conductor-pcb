@@ -30,6 +30,8 @@ interface State {
   claudeProfiles: ClaudeProfile[]
   usage: UsageWindow[]
   confirm: { message: string; resolve: (ok: boolean) => void } | null
+  /** Selected chat session (tab) per project id; App falls back to the first session when stale. */
+  activeSessionByProject: Record<string, string>
 
   load: () => Promise<void>
   applySnapshot: (s: RulesSnapshot) => void
@@ -63,6 +65,18 @@ interface State {
   setUsage: (w: UsageWindow[]) => void
   askConfirm: (message: string) => Promise<boolean>
   resolveConfirm: (ok: boolean) => void
+  setActiveSession: (projectId: string, sessionId: string) => void
+}
+
+const ACTIVE_SESSION_KEY = 'conductor-pcb.activeSession'
+
+function loadActiveSessions(): Record<string, string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ACTIVE_SESSION_KEY) ?? '{}') as unknown
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -91,7 +105,16 @@ export const useStore = create<State>((set, get) => ({
   claudeProfiles: [],
   usage: [],
   confirm: null,
+  activeSessionByProject: loadActiveSessions(),
 
+  setActiveSession: (projectId, sessionId) => {
+    const activeSessionByProject = { ...get().activeSessionByProject, [projectId]: sessionId }
+    try {
+      localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(activeSessionByProject))
+    } catch {
+    }
+    set({ activeSessionByProject })
+  },
   load: async () => {
     const [snap, config, configPath, api, report, projects] = await Promise.all([
       window.api.getRules(),

@@ -120,7 +120,7 @@ export function SettingsModal(): JSX.Element | null {
           <PathRow label="Python (venv)" value={config.pythonPath} onCommit={(v) => void setConfig({ pythonPath: v })} />
           <PathRow label="kicad-cli" value={config.kicadCli} onCommit={(v) => void setConfig({ kicadCli: v })} />
           <PathRow label="KiCad (AppImage)" value={config.kicadLauncher} onCommit={(v) => void setConfig({ kicadLauncher: v })} />
-          <p className="muted small">Чат запускає <code>claude -p</code> у папці проекту з MCP-сервером pcbagent; зміни цих полів діють з наступної розмови («Нова розмова»).</p>
+          <p className="muted small">Чат запускає <code>claude -p</code> у папці проекту з MCP-сервером pcbagent; зміни цих полів діють для нової сесії (вкладка «+» у чаті).</p>
         </section>}
         {section === 'api' && <section>
           <h3>Локальний API</h3>

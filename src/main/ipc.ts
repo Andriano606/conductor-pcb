@@ -7,10 +7,10 @@ import { addClaudeProfile, addCustomPrompt, getConfig, getConfigPath, removeClau
 import { deleteUserRule, getRules, reloadRules, saveUserRule, snapshot, startWatching } from './rulesRepo'
 import { apiStatus, getLastReport, setLastReport, startApi } from './api'
 import type { ChatAnswer, PcbProject } from '../shared/types'
-import { addProjectFromDir, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, runCheck, setProjectProfiles, startProjectChat, updateProject } from './projects'
+import { addProjectFromDir, closeChatSession, createChatSession, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, renameChatSession, runCheck, setProjectProfiles, startSessionChat, updateProject } from './projects'
 import { isClaudeConfigDir } from './configMerge'
 import { pollUsage, refreshUsageSoon } from './usagePoller'
-import { answerChat, attachChat, clearChat, interruptChat, killChat, sendChatMessage, setChatParams } from './claudeChat'
+import { answerChat, attachChat, interruptChat, sendChatMessage, setChatParams } from './claudeChat'
 
 export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle('rules:snapshot', (_e, projectId?: string) => snapshot(projectId))
@@ -97,12 +97,12 @@ export function registerIpc(win: BrowserWindow): void {
     win.webContents.send('projects:changed', getConfig().projects)
     return r
   })
-  // ---- chat
+  // ---- chat (`id` is a session/tab id, the opaque chat key)
   ipcMain.handle('chat:attach', (_e, id: string) => {
-    startProjectChat(id, app.getPath('userData'))
+    startSessionChat(id, app.getPath('userData'))
     return attachChat(id)
   })
-  ipcMain.on('chat:send', (_e, id: string, text: string, attachments?: ChatAttachment[]) => sendChatMessage(id, text, () => startProjectChat(id, app.getPath('userData')), attachments ?? []))
+  ipcMain.on('chat:send', (_e, id: string, text: string, attachments?: ChatAttachment[]) => sendChatMessage(id, text, () => startSessionChat(id, app.getPath('userData')), attachments ?? []))
   ipcMain.handle('chat:setModel', (_e, id: string, model: string) => setChatParams(id, { model }))
   ipcMain.handle('chat:setEffort', (_e, id: string, effort: string) => setChatParams(id, { effort }))
   ipcMain.handle('dialog:pickFiles', async () => {
@@ -111,12 +111,22 @@ export function registerIpc(win: BrowserWindow): void {
   })
   ipcMain.on('chat:answer', (_e, id: string, answer: ChatAnswer) => answerChat(id, answer))
   ipcMain.on('chat:interrupt', (_e, id: string) => interruptChat(id))
-  ipcMain.handle('chat:restart', (_e, id: string) => startProjectChat(id, app.getPath('userData'), true))
-  ipcMain.handle('chat:clear', (_e, id: string) => {
-    killChat(id)
-    updateProject(id, { claudeSessionId: undefined })
-    clearChat(id)
-    startProjectChat(id, app.getPath('userData'))
+  ipcMain.handle('chat:restart', (_e, id: string) => startSessionChat(id, app.getPath('userData'), true))
+  // ---- chat sessions (tabs within a project); each change pushes the fresh project list
+  const projectsChanged = (): void => win.webContents.send('projects:changed', getConfig().projects)
+  ipcMain.handle('session:create', (_e, projectId: string) => {
+    const session = createChatSession(projectId, app.getPath('userData'))
+    projectsChanged()
+    return session
+  })
+  ipcMain.handle('session:close', (_e, sessionId: string) => {
+    const ok = closeChatSession(sessionId)
+    projectsChanged()
+    return ok
+  })
+  ipcMain.handle('session:rename', (_e, sessionId: string, title: string) => {
+    renameChatSession(sessionId, title)
+    projectsChanged()
   })
   // ---- prompt library
   ipcMain.handle('prompts:list', () => getConfig().customPrompts)

@@ -4,6 +4,7 @@ import { dirname, join } from 'path'
 import { randomUUID } from 'crypto'
 import type { AppConfig, ClaudeProfile, CustomPrompt, EnvVar } from '../shared/types'
 import { defaultConfig, mergeConfig } from '../shared/rules'
+import { migrateSessions } from '../shared/projects'
 
 let configPath = ''
 let config: AppConfig
@@ -31,6 +32,8 @@ export function initStore(dir: string = app.getPath('userData')): AppConfig {
       console.error('config.json unreadable, using defaults:', e)
     }
   }
+  // Pre-tabs configs kept the Claude session on the project itself; give every project its sessions list.
+  config = { ...config, projects: config.projects.map(migrateSessions) }
   persist()
   return config
 }

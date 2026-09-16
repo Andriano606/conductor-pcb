@@ -1,7 +1,7 @@
 import React from 'react'
 import type { PcbProject } from '@shared/types'
 import { useStore } from '../store'
-import { useChatStore } from '../chatStore'
+import { projectBusy, useChatStore } from '../chatStore'
 import { UsageMeters } from './UsageMeters'
 
 export function ProjectSidebar(): JSX.Element {
@@ -26,7 +26,7 @@ export function ProjectSidebar(): JSX.Element {
       <div className="project-list">
         {projects.length === 0 && <div className="muted pad small">Немає проектів. Натисніть «+» і виберіть папку з файлом .kicad_pro.</div>}
         {projects.map((p) => (
-          <ProjectRow key={p.id} p={p} active={p.id === active} busy={!!chats[p.id]?.busy} onSelect={() => void selectProject(p.id)} onDelete={() => void deleteProject(p.id)} />
+          <ProjectRow key={p.id} p={p} active={p.id === active} busy={projectBusy(chats, p)} onSelect={() => void selectProject(p.id)} onDelete={() => void deleteProject(p.id)} />
         ))}
         {addError && <div className="err-badge pad">{addError}</div>}
       </div>

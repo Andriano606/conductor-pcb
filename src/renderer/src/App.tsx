@@ -27,6 +27,7 @@ export function App(): JSX.Element {
   const view = useStore((s) => s.view)
   const projects = useStore((s) => s.projects)
   const activeId = useStore((s) => s.config?.activeProjectId)
+  const activeSessionByProject = useStore((s) => s.activeSessionByProject)
   const applyEvent = useChatStore((s) => s.applyEvent)
 
   useEffect(() => {
@@ -60,6 +61,9 @@ export function App(): JSX.Element {
 
   const rule = rules.find((r) => r.code === selected) ?? null
   const project = projects.find((p) => p.id === activeId) ?? projects[0] ?? null
+  // Resolve the selected session tab, falling back to the first if the stored choice was closed (or never set).
+  const stored = project ? activeSessionByProject[project.id] : undefined
+  const session = project ? (project.sessions.find((s) => s.id === stored) ?? project.sessions[0] ?? null) : null
 
   if (!loaded) return <div className="app loading">Завантаження…</div>
   return (
@@ -74,7 +78,7 @@ export function App(): JSX.Element {
           </div>
         ) : (
           <main className="content chat-area">
-            {project ? <ChatView project={project} /> : <ChatEmpty />}
+            {project && session ? <ChatView project={project} session={session} key={session.id} /> : <ChatEmpty />}
           </main>
         )}
       </div>

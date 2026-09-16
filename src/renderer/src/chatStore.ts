@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { ChatAttachment, ChatCommand, ChatEventPayload, ChatItem, ChatModelState, ChatPending, ChatSnapshot } from '@shared/types'
 
-/** Per-project mirror of the main-side transcript (main is the source of truth). */
+/** Per-session (tab) mirror of the main-side transcript (main is the source of truth). */
 interface ChatEntry {
   items: ChatItem[]
   pending: ChatPending | null
@@ -35,6 +35,13 @@ interface ChatState {
   setDraft: (id: string, text: string) => void
   setAttachments: (id: string, atts: ChatAttachment[]) => void
   pushInputHistory: (text: string) => void
+  /** Forget a closed session's transcript mirror, draft and staged attachments. */
+  dispose: (id: string) => void
+}
+
+/** True when any session (tab) of the project has Claude working. */
+export function projectBusy(chats: Record<string, { busy: boolean }>, project: { sessions: { id: string }[] }): boolean {
+  return project.sessions.some((s) => chats[s.id]?.busy)
 }
 
 const empty = (): ChatEntry => ({ items: [], pending: null, busy: false, seq: 0, running: false, commands: [], modelState: null })
@@ -83,6 +90,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         break
     }
     set({ chats: { ...get().chats, [p.id]: next } })
+  },
+  dispose: (id) => {
+    const { chats, drafts, attachments } = get()
+    const { [id]: _c, ...restChats } = chats
+    const { [id]: _d, ...restDrafts } = drafts
+    const { [id]: _a, ...restAtts } = attachments
+    void _c; void _d; void _a
+    set({ chats: restChats, drafts: restDrafts, attachments: restAtts })
   },
   setDraft: (id, text) => set({ drafts: { ...get().drafts, [id]: text } }),
   setAttachments: (id, atts) => set({ attachments: { ...get().attachments, [id]: atts } }),

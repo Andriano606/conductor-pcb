@@ -89,6 +89,15 @@ describe('local API', () => {
     expect(getLastReport()?.findings).toHaveLength(1)
     expect((await req('POST', '/api/findings', { nope: 1 })).status).toBe(400)
   })
+  it('resolves /api/chat/:id by session id or by project id (first tab)', async () => {
+    const proj = { id: 'proj', name: 'b', dir: '/x/b', proFile: '', boardFile: '/x/b/b.kicad_pcb', createdAt: 0, sessions: [{ id: 'proj', createdAt: 0 }, { id: 'tab2', createdAt: 0 }] }
+    setConfig({ projects: [proj] })
+    expect((await req('GET', '/api/chat/proj')).status).toBe(200)
+    expect((await req('GET', '/api/chat/tab2')).status).toBe(200)
+    expect((await req('GET', '/api/chat/missing')).status).toBe(404)
+    expect((await req('POST', '/api/chat/tab2/send', {})).status).toBe(400)
+    setConfig({ projects: [] })
+  })
   it('404s unknown routes and answers health', async () => {
     expect((await req('GET', '/nothing')).status).toBe(404)
     expect(((await req('GET', '/api/health')).json as { ok: boolean }).ok).toBe(true)

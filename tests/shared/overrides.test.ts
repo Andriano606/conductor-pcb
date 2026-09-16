@@ -3,7 +3,7 @@ import { applyOverrides, mergeOverride, validateRule, withProjectOverride } from
 import { sampleRule } from '../helpers/sample'
 import type { PcbProject } from '@shared/types'
 
-const proj: PcbProject = { id: 'p1', name: 'b', dir: '/b', proFile: '', boardFile: '/b/b.kicad_pcb', createdAt: 1 }
+const proj: PcbProject = { id: 'p1', name: 'b', dir: '/b', proFile: '', boardFile: '/b/b.kicad_pcb', createdAt: 1, sessions: [{ id: 'p1', createdAt: 1 }] }
 
 describe('project-scoped overrides', () => {
   it('merges project override on top of the global one, params key by key', () => {

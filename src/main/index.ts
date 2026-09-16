@@ -6,7 +6,7 @@ import { onRulesChanged, reloadRules, snapshot, startWatching, stopWatching } fr
 import { apiStatus, setConfigListener, setReportListener, setScreenshotProvider, startApi, stopApi } from './api'
 import { writeFileSync } from 'fs'
 import { killAllChats, onChatBusy, onChatEvent, onChatParams, onChatSessionId, setChatStorageDir } from './claudeChat'
-import { updateProject } from './projects'
+import { patchSession } from './projects'
 import { onUsage, startUsagePolling, stopUsagePolling } from './usagePoller'
 import { setConfig } from './store'
 
@@ -54,8 +54,9 @@ void app.whenReady().then(async () => {
   onChatEvent((id, seq, ev) => {
     if (!win.isDestroyed()) win.webContents.send('chat:event', { id, seq, ev })
   })
-  onChatSessionId((id, sessionId) => updateProject(id, { claudeSessionId: sessionId || undefined }))
-  onChatParams((id, params) => updateProject(id, { claudeModel: params.model, claudeEffort: params.effort }))
+  // `id` is a session (tab) id: the chat key persists its Claude session id and model knobs on that tab.
+  onChatSessionId((id, sessionId) => patchSession(id, { claudeSessionId: sessionId || undefined }))
+  onChatParams((id, params) => patchSession(id, { claudeModel: params.model, claudeEffort: params.effort }))
   onChatBusy((id, busy) => {
     if (!win.isDestroyed()) win.webContents.send('chat:busy', { id, busy })
   })

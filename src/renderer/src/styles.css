@@ -263,6 +263,23 @@ a { color: var(--accent); }
 .chat-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 6px; }
 .chat-tools-left, .chat-tools-right { display: flex; align-items: center; gap: 4px; }
 .chat-tools-left { flex: 1; min-width: 0; }
+.chat-tools-divider { width: 1px; height: 18px; background: var(--border-strong); margin: 0 4px; flex-shrink: 0; }
+/* Session (tab) strip in the composer toolbar — ported from conductor-linux. */
+.session-tabs { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.session-tabs::-webkit-scrollbar { display: none; }
+.session-tab { display: flex; align-items: center; gap: 6px; padding: 3px 5px 3px 9px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-dim); font-family: var(--mono); font-size: 11px; cursor: pointer; user-select: none; white-space: nowrap; flex-shrink: 0; }
+.session-tab:hover { background: rgba(255, 255, 255, 0.05); }
+.session-tab.active { background: var(--bg); color: var(--text-body); border-color: var(--border-strong); }
+/* Leading accent dot on the active tab; hidden while busy, when the spinner takes its place. */
+.session-tab.active::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.session-tab.active:has(.session-tab-spin)::before { display: none; }
+.session-tab-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-tab-close { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border: none; border-radius: 4px; background: transparent; color: var(--text-dim); font-size: 14px; line-height: 1; cursor: pointer; }
+.session-tab-close:hover { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+.session-tab-add { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: none; border-radius: 7px; background: transparent; color: var(--text-dim); cursor: pointer; font-size: 16px; line-height: 1; flex-shrink: 0; }
+.session-tab-add:hover { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }
+.session-tab-edit { width: 120px; border: 1px solid var(--accent); border-radius: 5px; background: var(--bg); color: var(--text); font-size: 12px; padding: 2px 4px; }
+.session-tab-spin { width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--accent); border-top-color: transparent; animation: chat-spin 0.8s linear infinite; }
 .chat-tools-right { flex-shrink: 0; }
 .chat-iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; border: none; background: transparent; color: var(--text-dim); cursor: pointer; transition: background 0.12s, color 0.12s; }
 .chat-iconbtn:hover { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }

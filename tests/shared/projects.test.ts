@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { projectFromFiles, removeProject, upsertProject } from '@shared/projects'
+import { addSession, findSession, migrateSessions, projectFromFiles, removeProject, removeSession, renameSession, sessionLabel, updateSession, upsertProject } from '@shared/projects'
 
 describe('projectFromFiles', () => {
   it('derives name and files from a folder listing, ignoring backups', () => {
     const p = projectFromFiles('/x/board', ['board.kicad_pro', 'board.kicad_pcb', 'board.kicad_pcb.backup-1', 'board.kicad_sch'], 'id1', 5)!
     expect(p).toMatchObject({ id: 'id1', name: 'board', dir: '/x/board', proFile: '/x/board/board.kicad_pro', boardFile: '/x/board/board.kicad_pcb', createdAt: 5 })
+    // The first session tab shares the project id, so its transcript lives at chats/<projectId>.json.
+    expect(p.sessions).toEqual([{ id: 'id1', createdAt: 5 }])
   })
   it('accepts a bare pcb and rejects a folder with neither', () => {
     expect(projectFromFiles('/y/', ['b.kicad_pcb'], 'i')?.boardFile).toBe('/y/b.kicad_pcb')
@@ -23,5 +25,42 @@ describe('upsertProject / removeProject', () => {
     expect(l3.map((p) => p.id)).toEqual(['ida', 'idb'])
     expect(l3[0].name).toBe('renamed')
     expect(removeProject(l3, 'ida').map((p) => p.id)).toEqual(['idb'])
+  })
+})
+
+describe('chat sessions (tabs)', () => {
+  const base = projectFromFiles('/a', ['a.kicad_pro'], 'pa', 1)!
+
+  it('migrates a pre-tabs project into one session that keeps the project id and Claude fields', () => {
+    const { sessions: _s, ...legacy } = base
+    void _s
+    const old = { ...legacy, claudeSessionId: 'cs', claudeModel: 'opus', claudeEffort: 'high' } as typeof base
+    const m = migrateSessions(old)
+    expect(m.sessions).toEqual([{ id: 'pa', createdAt: 1, claudeSessionId: 'cs', claudeModel: 'opus', claudeEffort: 'high' }])
+    expect(m.claudeSessionId).toBeUndefined()
+    expect(m.claudeModel).toBeUndefined()
+    expect(migrateSessions(base)).toBe(base) // already migrated: untouched
+  })
+
+  it('adds, finds, updates, renames and removes sessions, never the last one', () => {
+    const { list: l1, session } = addSession([base], 'pa', 's2', 7)
+    expect(session).toEqual({ id: 's2', createdAt: 7 })
+    expect(l1[0].sessions.map((s) => s.id)).toEqual(['pa', 's2'])
+    expect(addSession([base], 'nope', 'x').session).toBeUndefined()
+    expect(findSession(l1, 's2')).toEqual({ project: l1[0], session })
+    expect(findSession(l1, 'zz')).toBeUndefined()
+
+    const l2 = updateSession(l1, 's2', { claudeSessionId: 'cs2', id: 'ignored' })
+    expect(l2[0].sessions[1]).toEqual({ id: 's2', createdAt: 7, claudeSessionId: 'cs2' })
+
+    expect(sessionLabel(l2[0], 'pa')).toBe('Сесія 1')
+    expect(sessionLabel(l2[0], 's2')).toBe('Сесія 2')
+    const l3 = renameSession(l2, 's2', '  NRST reroute ')
+    expect(sessionLabel(l3[0], 's2')).toBe('NRST reroute')
+    expect(renameSession(l3, 's2', '   ')[0].sessions[1].title).toBeUndefined()
+
+    const l4 = removeSession(l3, 'pa')
+    expect(l4[0].sessions.map((s) => s.id)).toEqual(['s2'])
+    expect(removeSession(l4, 's2')[0].sessions.map((s) => s.id)).toEqual(['s2'])
   })
 })
