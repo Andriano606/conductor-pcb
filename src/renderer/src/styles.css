@@ -278,6 +278,14 @@ a { color: var(--accent); }
 .wf-pre { margin: 0; padding: 8px; max-height: 200px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; word-break: break-word; color: var(--text-dim); user-select: text; }
 .wf-pre.result { color: var(--text-body); }
 .wf-summary { font-size: 12.5px; color: var(--text-dim); border-top: 1px solid var(--hairline); padding-top: 10px; user-select: text; }
+/* Subagent entries: a coloured left rail + badge so a parallel subagent's messages/commands read as a distinct thread. */
+.chat-msg.subagent, .chat-tool.subagent { border-left: 3px solid var(--agent); }
+.chat-tool.subagent-msg { width: min(90%, 720px); max-width: 720px; }
+.chat-tool.subagent-msg .subagent-preview { font-family: inherit; font-size: 12px; color: var(--text-dim); flex: 1; }
+.chat-tool.subagent-msg .subagent-md { font-size: 13px; color: var(--text-body); line-height: 1.6; }
+.chat-agent-badge { flex: none; display: inline-block; font-size: 10px; font-weight: 600; line-height: 1.5; color: #fff; background: var(--agent, var(--accent-2)); border-radius: 4px; padding: 0 6px; white-space: nowrap; }
+/* Background-command marker on a tool row. */
+.chat-tool-bg { flex: none; font-size: 10px; font-weight: 600; color: var(--text-dim); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; text-transform: uppercase; }
 .chat-tool.ok .chat-tool-status { color: var(--accent); }
 .chat-tool.err .chat-tool-status { color: var(--danger); }
 .chat-tool-spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--text-dim); border-top-color: transparent; border-radius: 50%; animation: chat-spin 0.8s linear infinite; }

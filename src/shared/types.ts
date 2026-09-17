@@ -362,6 +362,16 @@ export interface ChatItem {
   /** User items: files attached to this message. */
   attachments?: ChatAttachment[]
   /**
+   * The subagent this entry belongs to: the `parent_tool_use_id` of the Agent tool call that
+   * spawned it. Undefined ⇒ the main agent. The renderer colours subagent entries (id → hue) so
+   * parallel subagents read as distinct threads.
+   */
+  agentId?: string
+  /** Human label of the subagent (its Agent description / subagent_type), if any. */
+  agentLabel?: string
+  /** Tool items only: the command was launched in the background (run_in_background). */
+  background?: boolean
+  /**
    * Workflow tool items only: the multi-agent run this call started — its plan (phases) and the
    * live per-agent progress. Updated on every task_progress event and persisted with the
    * transcript, so a finished run stays inspectable.

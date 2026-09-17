@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import type { ChatEvent } from '@shared/types'
+import type { ChatEvent, ChatItem } from '@shared/types'
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp', getAppPath: () => '/tmp', isPackaged: false } }))
 // A restart respawns `claude`; never let the tests reach the real binary.
@@ -19,7 +19,7 @@ vi.mock('child_process', async () => {
   }
 })
 
-import { _entryForTest, answerChat, attachChat, buildCommand, describeStart, handleLine, killChat, onChatEvent, onChatParams, onChatSessionId, setChatParams, setChatStorageDir, stopChatWorkflow, summarizeToolUse } from '../../src/main/claudeChat'
+import { _entryForTest, answerChat, attachChat, buildCommand, describeStart, handleLine, interruptChat, killChat, onChatEvent, onChatParams, onChatSessionId, setChatParams, setChatStorageDir, stopChatWorkflow, summarizeToolUse } from '../../src/main/claudeChat'
 
 const events: ChatEvent[] = []
 onChatEvent((_id, _seq, ev) => events.push(ev))
@@ -232,6 +232,7 @@ describe('workflow task events', () => {
   const launch = (id: string): void =>
     feed(id, [
       { type: 'assistant', message: { content: [{ type: 'tool_use', id: WF, name: 'Workflow', input: { script: "export const meta = { name: 'probe', description: 'Tiny probe' }" } }] } },
+      { type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'task1', task_type: 'local_workflow', description: 'Tiny probe' }] },
       { type: 'system', subtype: 'task_started', task_id: 'task1', tool_use_id: WF, task_type: 'local_workflow', workflow_name: 'probe', description: 'Tiny probe' },
       { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: WF, content: 'Workflow launched in background. Task ID: task1' }] } }
     ])
@@ -280,6 +281,7 @@ describe('workflow task events', () => {
     launch(id)
     progress(id, [{ type: 'workflow_agent', index: 1, label: 'a1', state: 'progress', startedAt: 1 }])
     feed(id, [
+      { type: 'system', subtype: 'background_tasks_changed', tasks: [] },
       { type: 'system', subtype: 'task_updated', task_id: 'task1', patch: { status: 'completed' } },
       { type: 'system', subtype: 'task_notification', task_id: 'task1', tool_use_id: WF, status: 'completed', summary: 'Dynamic workflow "Tiny probe" completed', usage: { total_tokens: 9999 } }
     ])
@@ -331,6 +333,159 @@ describe('workflow task events', () => {
   })
 })
 
+/**
+ * Subagents are background tasks: the Agent tool_use is answered at once ("started") and the main
+ * turn can end long before the agent does — the CLI then starts a turn of its own to consume the
+ * notification. Busy is derived from the turn AND the live agent tasks, the Agent row waits for
+ * the task, and everything a subagent says/does is tagged with its id + label.
+ */
+describe('background subagents', () => {
+  const AGENT = 'toolu_agent1'
+  const TASK = 'task_a1'
+  const spawnAgent = (id: string): void =>
+    feed(id, [
+      { type: 'assistant', message: { content: [{ type: 'tool_use', id: AGENT, name: 'Agent', input: { description: 'Пошук TODO', prompt: 'find todos' } }] } },
+      { type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: TASK, task_type: 'local_agent', description: 'Пошук TODO' }] },
+      { type: 'system', subtype: 'task_started', task_id: TASK, tool_use_id: AGENT, description: 'Пошук TODO', subagent_type: 'Explore' },
+      { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: AGENT, content: 'started' }] } }
+    ])
+  const agentRow = (id: string): ChatItem | undefined => _entryForTest(id).items.find((it) => it.id === AGENT)
+  beforeEach(() => {
+    events.length = 0
+  })
+
+  it('stays busy after the main turn ends while a subagent is still running', () => {
+    const id = 'a1'
+    feed(id, [{ type: 'assistant', message: { content: [{ type: 'text', text: 'Запускаю агента' }] } }])
+    spawnAgent(id)
+    expect(agentRow(id)).toMatchObject({ toolName: 'Agent', text: 'Пошук TODO' })
+    expect(agentRow(id)!.done).toBeUndefined() // "started" is not the agent's answer
+    feed(id, [{ type: 'result', subtype: 'success', result: 'запустив агента' }])
+    expect(_entryForTest(id).busy).toBe(true)
+  })
+
+  it('goes idle only after the subagent’s follow-up turn ends, closing its row with the summary', () => {
+    const id = 'a2'
+    spawnAgent(id)
+    feed(id, [
+      { type: 'result', subtype: 'success', result: 'запустив агента' },
+      { type: 'system', subtype: 'task_progress', task_id: TASK, tool_use_id: AGENT, description: 'Running grep -r TODO' }
+    ])
+    expect(agentRow(id)).toMatchObject({ text: 'Running grep -r TODO' })
+    expect(agentRow(id)!.done).toBeUndefined()
+    feed(id, [
+      { type: 'system', subtype: 'background_tasks_changed', tasks: [] },
+      { type: 'system', subtype: 'task_notification', task_id: TASK, tool_use_id: AGENT, status: 'completed', summary: 'Знайдено 3 TODO' }
+    ])
+    expect(agentRow(id)).toMatchObject({ done: true, isError: false, output: 'Знайдено 3 TODO' })
+    expect(_entryForTest(id).busy).toBe(true) // the follow-up turn is coming
+    feed(id, [
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'Ось результат' }] } },
+      { type: 'result', subtype: 'success', result: 'Ось результат' }
+    ])
+    expect(_entryForTest(id).busy).toBe(false)
+    expect(_entryForTest(id).items.at(-1)).toMatchObject({ role: 'assistant', text: 'Ось результат' })
+  })
+
+  it('marks the Agent row failed when its task does not complete', () => {
+    const id = 'a3'
+    spawnAgent(id)
+    feed(id, [
+      { type: 'system', subtype: 'background_tasks_changed', tasks: [] },
+      { type: 'system', subtype: 'task_notification', task_id: TASK, tool_use_id: AGENT, status: 'failed', summary: 'Агент впав' }
+    ])
+    expect(agentRow(id)).toMatchObject({ done: true, isError: true, output: 'Агент впав' })
+  })
+
+  it('tags subagent text and tool calls with the parent Agent id and label, in their own live items', () => {
+    const id = 'a4'
+    spawnAgent(id)
+    feed(id, [
+      { type: 'stream_event', parent_tool_use_id: AGENT, event: { type: 'content_block_start', content_block: { type: 'text' } } },
+      { type: 'stream_event', parent_tool_use_id: AGENT, event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Шукаю' } } },
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Чекаю' } } },
+      { type: 'assistant', parent_tool_use_id: AGENT, message: { content: [{ type: 'text', text: 'Шукаю TODO' }, { type: 'tool_use', id: 'toolu_sub_grep', name: 'Grep', input: { pattern: 'TODO' } }] } },
+      { type: 'user', parent_tool_use_id: AGENT, message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_sub_grep', content: '3 hits' }] } }
+    ])
+    const items = _entryForTest(id).items
+    const subText = items.find((it) => it.role === 'assistant' && it.agentId === AGENT)
+    expect(subText).toMatchObject({ text: 'Шукаю TODO', agentLabel: 'Пошук TODO' })
+    const mainText = items.find((it) => it.role === 'assistant' && !it.agentId)
+    expect(mainText).toMatchObject({ text: 'Чекаю' }) // the two streams never mix
+    expect(items.find((it) => it.id === 'toolu_sub_grep')).toMatchObject({ agentId: AGENT, agentLabel: 'Пошук TODO', done: true, output: '3 hits' })
+    expect(agentRow(id)!.done).toBeUndefined() // the subagent's own tool_results never close the Agent row
+  })
+
+  it('an interrupt closes the running subagent rows and releases busy', () => {
+    const id = 'a5'
+    const e = _entryForTest(id)
+    const written: Record<string, unknown>[] = []
+    e.proc = { stdin: { write: (s: string) => written.push(JSON.parse(s) as Record<string, unknown>) } } as never
+    spawnAgent(id)
+    interruptChat(id)
+    expect(written.at(-1)).toMatchObject({ request: { subtype: 'interrupt' } })
+    expect(agentRow(id)).toMatchObject({ done: true, isError: true, output: 'Субагента перервано.' })
+    feed(id, [{ type: 'result', subtype: 'error_during_execution', result: 'interrupted' }])
+    expect(e.busy).toBe(false)
+    e.proc = undefined
+  })
+
+  /** A command launched with run_in_background is a background task too, but Claude is not waiting on it. */
+  describe('a backgrounded shell job', () => {
+    const BASH = 'toolu_bash1'
+    const BTASK = 'task_bash1'
+    const startJob = (id: string): void =>
+      feed(id, [
+        { type: 'assistant', message: { content: [{ type: 'tool_use', id: BASH, name: 'Bash', input: { command: 'npm run build', run_in_background: true } }] } },
+        { type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: BTASK, task_type: 'local_bash', description: 'npm run build' }] },
+        { type: 'system', subtype: 'task_started', task_id: BTASK, tool_use_id: BASH, description: 'npm run build' },
+        { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: BASH, content: 'moved to background' }] } }
+      ])
+    const row = (id: string): ChatItem | undefined => _entryForTest(id).items.find((it) => it.id === BASH)
+
+    it('is flagged as background, and the session goes idle when the turn ends even though the job runs', () => {
+      const id = 'b1'
+      startJob(id)
+      expect(row(id)).toMatchObject({ background: true, text: 'npm run build' })
+      expect(row(id)!.done).toBeUndefined()
+      expect(_entryForTest(id).busy).toBe(true) // the turn itself is still going
+      feed(id, [{ type: 'result', subtype: 'success', result: 'запустив у фоні' }])
+      expect(_entryForTest(id).busy).toBe(false)
+    })
+
+    it('stays idle when the job finishes, and its row closes with what the job reported', () => {
+      const id = 'b2'
+      startJob(id)
+      feed(id, [
+        { type: 'result', subtype: 'success', result: 'запустив у фоні' },
+        { type: 'system', subtype: 'background_tasks_changed', tasks: [] },
+        { type: 'system', subtype: 'task_notification', task_id: BTASK, tool_use_id: BASH, status: 'completed', summary: 'exit code 0' }
+      ])
+      expect(_entryForTest(id).busy).toBe(false)
+      expect(row(id)).toMatchObject({ done: true, isError: false, output: 'exit code 0' })
+    })
+
+    it('a subagent running beside the job still holds busy; only the job left → idle', () => {
+      const id = 'b3'
+      startJob(id)
+      spawnAgent(id)
+      feed(id, [
+        { type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: BTASK, task_type: 'local_bash' }, { task_id: TASK, task_type: 'local_agent' }] },
+        { type: 'result', subtype: 'success', result: 'запустив агента' }
+      ])
+      expect(_entryForTest(id).busy).toBe(true)
+      feed(id, [
+        { type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: BTASK, task_type: 'local_bash' }] },
+        { type: 'system', subtype: 'task_notification', task_id: TASK, tool_use_id: AGENT, status: 'completed', summary: 'ok' },
+        { type: 'assistant', message: { content: [{ type: 'text', text: 'Агент завершив' }] } },
+        { type: 'result', subtype: 'success', result: 'Агент завершив' }
+      ])
+      expect(_entryForTest(id).busy).toBe(false)
+    })
+  })
+})
+
 describe('summarizeToolUse', () => {
   it('names a Workflow run from its script meta (ultracode launches these)', () => {
     const script = "export const meta = {\n  name: 'review-board',\n  description: 'Перевірити плату по зонах',\n}\nconst r = await agent('x')"
@@ -341,6 +496,8 @@ describe('summarizeToolUse', () => {
   it('labels Bash, file tools and MCP tools compactly', () => {
     expect(summarizeToolUse('Bash', { command: 'ls  -la' })).toBe('ls -la')
     expect(summarizeToolUse('Read', { file_path: '/a/b.ts' })).toBe('/a/b.ts')
+    expect(summarizeToolUse('Agent', { description: 'Пошук TODO', prompt: 'long prompt' })).toBe('Пошук TODO')
+    expect(summarizeToolUse('Task', { prompt: 'do it' })).toBe('do it')
     expect(summarizeToolUse('mcp__pcbagent__route', { net: 'X', ref_a: 'U1' })).toBe('route(net=X, ref_a=U1)')
     expect(summarizeToolUse('Other', { k: 'v' }, 5)).toHaveLength(5)
   })

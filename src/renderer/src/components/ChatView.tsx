@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatAttachment, ChatItem, ChatPending, ChatQuestion, ChatSession, PcbProject } from '@shared/types'
@@ -456,25 +456,92 @@ function StartNoticeView({ fields }: { fields: { key: string; value: string }[] 
   )
 }
 
-function ItemView({ item, onOpenWorkflow }: { item: ChatItem; onOpenWorkflow?: (itemId: string) => void }): JSX.Element {
+/** Stable hue per subagent id, so each parallel subagent reads as its own colour. */
+export function agentColor(id: string): string {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360
+  return `hsl(${h} 60% 52%)`
+}
+
+/** className suffix + the `--agent` CSS var for an entry that belongs to a subagent. */
+function agentProps(item: ChatItem): { className: string; style?: React.CSSProperties } {
+  if (!item.agentId) return { className: '' }
+  return { className: ' subagent', style: { ['--agent' as string]: agentColor(item.agentId) } }
+}
+
+/** A coloured badge marking an entry as produced by a subagent. */
+function AgentBadge({ item }: { item: ChatItem }): JSX.Element | null {
+  if (!item.agentId) return null
+  return <span className="chat-agent-badge" title="Субагент, що працює паралельно">⛋ {item.agentLabel || 'субагент'}</span>
+}
+
+/** "12.3 с" / "1хв 04с" rendering of a tool call's elapsed time. */
+function formatDuration(ms: number): string {
+  const s = Math.max(0, ms) / 1000
+  if (s < 60) return `${s < 10 ? s.toFixed(1) : Math.round(s)} с`
+  const m = Math.floor(s / 60)
+  return `${m}хв ${String(Math.round(s % 60)).padStart(2, '0')}с`
+}
+
+/**
+ * A tool-call row: status, name, the compact command, a live elapsed-time counter (ticks while
+ * running, frozen at endTs once done), the «фон» marker for a backgrounded command, the subagent
+ * badge, and click-to-expand output.
+ */
+const ToolItemView = memo(function ToolItemView({ item }: { item: ChatItem }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const running = !item.done
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!running) return
+    const t = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(t)
+  }, [running])
+  const elapsed = (item.done ? (item.endTs ?? item.ts) : now) - item.ts
+  const a = agentProps(item)
+  return (
+    <div className={'chat-tool ' + (item.done ? (item.isError ? 'err' : 'ok') : 'run') + (item.output ? ' expandable' : '') + a.className} style={a.style}>
+      <div className={'chat-tool-row' + (item.output ? ' clickable' : '')} onClick={() => item.output && setOpen(!open)}>
+        <span className="chat-tool-status">{item.done ? (item.isError ? '✗' : '✓') : <span className="chat-tool-spin" />}</span>
+        <span className="chat-tool-name">{item.toolName?.replace(/^mcp__pcbagent__/, '')}</span>
+        {item.background && <span className="chat-tool-bg" title="Команда запущена у фоні">фон</span>}
+        <AgentBadge item={item} />
+        <span className="chat-tool-summary">{item.text}</span>
+        <span className="chat-tool-dur" title="Тривалість виконання">{formatDuration(elapsed)}</span>
+      </div>
+      {open && item.output && <pre className={'chat-tool-output' + (item.isError ? ' err' : '')}>{item.output}</pre>}
+    </div>
+  )
+})
+
+/**
+ * A subagent's narration is collapsed to a one-line, click-to-expand row (like a tool call) so
+ * parallel subagents don't flood the main thread.
+ */
+const SubagentTextView = memo(function SubagentTextView({ item }: { item: ChatItem }): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  const a = agentProps(item)
+  const preview = item.text.split('\n').find((l) => l.trim()) ?? item.text.trim()
+  return (
+    <div className={'chat-tool subagent-msg expandable' + (expanded ? ' expanded' : '') + a.className} style={a.style}>
+      <div className="chat-tool-row clickable" title={expanded ? 'Згорнути' : 'Показати повністю'} onClick={() => setExpanded((v) => !v)}>
+        <AgentBadge item={item} />
+        {!expanded && <span className="chat-tool-summary subagent-preview">{preview}</span>}
+      </div>
+      {expanded && (
+        <div className="chat-md md subagent-md">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown>
+        </div>
+      )}
+    </div>
+  )
+})
+
+function ItemView({ item, onOpenWorkflow }: { item: ChatItem; onOpenWorkflow?: (itemId: string) => void }): JSX.Element {
   // The Workflow tool's own row is the multi-agent status line: name, progress and a click that
   // opens the plan/agents panel.
   if (item.role === 'tool' && item.workflow) return <WorkflowRow item={item} onOpen={() => onOpenWorkflow?.(item.id)} />
-  if (item.role === 'tool') {
-    const dur = item.endTs ? `${((item.endTs - item.ts) / 1000).toFixed(1)} с` : ''
-    return (
-      <div className={'chat-tool' + (item.done ? (item.isError ? ' err' : ' ok') : '') + (item.output ? ' expandable' : '')}>
-        <div className={'chat-tool-row' + (item.output ? ' clickable' : '')} onClick={() => item.output && setOpen(!open)}>
-          <span className="chat-tool-status">{item.done ? (item.isError ? '✗' : '✓') : <span className="chat-tool-spin" />}</span>
-          <span className="chat-tool-name">{item.toolName?.replace(/^mcp__pcbagent__/, '')}</span>
-          <span className="chat-tool-summary">{item.text}</span>
-          <span className="chat-tool-dur">{dur}</span>
-        </div>
-        {open && item.output && <pre className={'chat-tool-output' + (item.isError ? ' err' : '')}>{item.output}</pre>}
-      </div>
-    )
-  }
+  if (item.role === 'tool') return <ToolItemView item={item} />
   if (item.role === 'info') {
     const fields = parseStartNotice(item.text)
     return fields ? <StartNoticeView fields={fields} /> : <div className="chat-info">{item.text}</div>
@@ -488,6 +555,7 @@ function ItemView({ item, onOpenWorkflow }: { item: ChatItem; onOpenWorkflow?: (
         {item.text}
       </div>
     )
+  if (item.agentId) return <SubagentTextView item={item} />
   return (
     <div className="chat-msg assistant chat-md md">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown>

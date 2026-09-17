@@ -79,7 +79,7 @@ when sources are newer (tested in `tests/scripts/launch.test.ts`).
   - `store.ts` `<userData>/config.json` (rules config **and** projects, settings, claude args, tool paths);
     migrates from the old `pcb-rules-library` config once.
   - `rulesRepo.ts` bundled `rules/` + user rules dir, watched; `api.ts` local HTTP API (`handle()` is testable without a socket).
-  - `claudeChat.ts` — port of conductor-linux's chat (no subagent transcripts / local commands): spawns
+  - `claudeChat.ts` — port of conductor-linux's chat (no local commands): spawns
     `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio [--resume] --mcp-config <file> <claudeArgs>`
     through the login shell (no app-side system prompt: board-work instructions come from the `kicad-pcb-layout` Claude config, skill `pcb-layout-fix`, enabled per project via ⚙ in the composer), parses NDJSON (`handleLine`), keeps a `ChatItem[]` transcript per session tab
     (persisted in `<userData>/chats/<sessionId>.json`; a migrated project's first session reuses the project id), turns `can_use_tool` control requests into
@@ -107,8 +107,17 @@ when sources are newer (tested in `tests/scripts/launch.test.ts`).
     `result` keeps the session busy while a task runs (the CLI starts its own turn to report). Renderer:
     `WorkflowView.tsx` — `WorkflowRow` is the clickable status line in the transcript (name, current step, agents
     done, elapsed, tokens), `WorkflowPanel` the modal it opens (plan on the left, live agents on the right, «Зупинити
-    воркфлов» → `stopChatWorkflow` → the CLI's `stop_task`); the open panel id lives in `ChatView`. Subagent text
-    (`parent_tool_use_id`) still stays out of the transcript. `tests/fixtures/ultracode-workflow.ndjson` is a real CLI
+    воркфлов» → `stopChatWorkflow` → the CLI's `stop_task`); the open panel id lives in `ChatView`.
+    **Subagents & background tasks** (ported from conductor-linux): every item carries `agentId`/`agentLabel`
+    (`parent_tool_use_id` of the Agent call, label from its `description`/`subagent_type`, remembered in
+    `Entry.subagents`); subagent text streams into its own live item (`Entry.liveIds` keyed by agent) and renders as a
+    collapsed, colour-railed row (`SubagentTextView`, `agentColor(id)` → hue), tool rows get the ⛋ badge and a live
+    elapsed counter (`ToolItemView`), `run_in_background` Bash rows the «фон» marker (`ChatItem.background`). Busy is
+    *derived*: `refreshBusy` = `turnActive || bgTasks.size`, where `bgTasks` is the CLI's `background_tasks_changed`
+    snapshot filtered to agent work (`AGENT_TASK_TYPES`; a `local_bash` job never holds busy) and `turnActive` is set by
+    main-agent output / a sent message and cleared by `result`. After an agent task's notification the CLI starts a
+    turn on its own, so `markTurnActive(watchdog)` expects it with a 30 s grace timer. `interruptChat` closes the
+    running task rows («Субагента перервано.») and drops `bgTasks`. `tests/fixtures/ultracode-workflow.ndjson` is a real CLI
     recording driven end to end in `tests/renderer/WorkflowView.test.tsx`.
     Attachments: files go as `Файл: <path>` lines, images as base64 image blocks.
   - `projects.ts` — add/remove projects, MCP config file per project (`<userData>/mcp/<id>.json`),

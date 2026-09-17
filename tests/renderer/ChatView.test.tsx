@@ -75,6 +75,28 @@ describe('ChatView', () => {
     expect(on).toHaveTextContent('⚡ ultracode')
     expect(on.className).toContain('ultra on')
   })
+  it('renders subagent entries with a coloured badge, collapsed narration, and the «фон» marker', async () => {
+    render(<ChatView project={project} session={session} />)
+    await screen.findByPlaceholderText(/Що змінити на платі/)
+    const apply = useChatStore.getState().applyEvent
+    apply({ id: 'p1', seq: 1, ev: { type: 'push', item: { id: 'ag', role: 'tool', toolName: 'Agent', text: 'Пошук TODO', ts: 1 } } })
+    apply({ id: 'p1', seq: 2, ev: { type: 'push', item: { id: 'st', role: 'assistant', text: 'Перший рядок\n\nДругий **абзац**', ts: 1, agentId: 'ag', agentLabel: 'Пошук TODO' } } })
+    apply({ id: 'p1', seq: 3, ev: { type: 'push', item: { id: 'sg', role: 'tool', toolName: 'Grep', text: 'TODO', ts: 1, agentId: 'ag', agentLabel: 'Пошук TODO', done: true, endTs: 2500 } } })
+    apply({ id: 'p1', seq: 4, ev: { type: 'push', item: { id: 'bg', role: 'tool', toolName: 'Bash', text: 'npm run build', ts: 1, background: true } } })
+    // the Agent row itself is main-agent work (no badge); its subagent's entries carry the badge + rail
+    expect(await screen.findAllByText('⛋ Пошук TODO')).toHaveLength(2)
+    const sub = document.querySelectorAll('.chat-tool.subagent')
+    expect(sub).toHaveLength(2)
+    expect((sub[0] as HTMLElement).style.getPropertyValue('--agent')).toMatch(/^hsl\(/)
+    // the narration is collapsed to its first line, expanded on click
+    expect(screen.getByText('Перший рядок')).toBeInTheDocument()
+    expect(screen.queryByText('абзац')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Перший рядок'))
+    expect(screen.getByText('абзац')).toBeInTheDocument()
+    // the backgrounded command is marked, a still-running row ticks, a finished one is frozen
+    expect(screen.getByText('фон')).toBeInTheDocument()
+    expect(screen.getByText('2.5 с')).toBeInTheDocument()
+  })
   it('is keyed by the session tab, not the project', async () => {
     const tab2 = { id: 'tab2', createdAt: 2, title: 'NRST' }
     render(<ChatView project={{ ...project, sessions: [session, tab2] }} session={tab2} />)

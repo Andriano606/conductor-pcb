@@ -41,7 +41,29 @@ interface Entry {
   seq: number
   busy: boolean
   queue: { pending: ChatPending; rawInput: unknown }[]
-  liveId?: string
+  /**
+   * The assistant item currently receiving streamed text, per agent: '' is the main agent, a
+   * subagent's key is its parent_tool_use_id — so parallel subagents stream into their own items.
+   */
+  liveIds: Record<string, string | undefined>
+  /** Spawned subagents: Agent/Task tool_use id → human label, for the badge/colour in the transcript. */
+  subagents: Record<string, string>
+  /**
+   * The main agent's turn is in flight — including the one the CLI starts on its own to consume a
+   * finished background task's notification. Together with `bgTasks` this is what busy is derived
+   * from (see refreshBusy).
+   */
+  turnActive?: boolean
+  /**
+   * Live background tasks that are *Claude's own work* (subagents, workflows — see AGENT_TASK_TYPES),
+   * from the CLI's `background_tasks_changed` snapshots. A backgrounded shell job is deliberately
+   * NOT here: it runs beside the conversation without Claude waiting on it.
+   */
+  bgTasks: Set<string>
+  /** task id → whether that background task counts as Claude working (judged from its task_type). */
+  taskKinds: Map<string, TaskKind>
+  /** Safety net for a turn we *expect* the CLI to start (after a task finished) but that never comes. */
+  taskTurnTimer?: ReturnType<typeof setTimeout>
   stdoutBuf: string
   stderrTail: string
   sessionId?: string
@@ -115,7 +137,7 @@ export function onChatBusy(fn: typeof busySink): void {
 function ensure(id: string): Entry {
   let e = entries.get(id)
   if (!e) {
-    e = { items: [], seq: 0, busy: false, queue: [], stdoutBuf: '', stderrTail: '', turnHadText: false, ultracodeReqs: new Map(), runningTasks: new Set(), workflowItems: new Map() }
+    e = { items: [], seq: 0, busy: false, queue: [], stdoutBuf: '', stderrTail: '', turnHadText: false, ultracodeReqs: new Map(), runningTasks: new Set(), workflowItems: new Map(), liveIds: {}, subagents: {}, bgTasks: new Set(), taskKinds: new Map() }
     entries.set(id, e)
     load(id, e)
   }
@@ -143,6 +165,69 @@ function setBusy(id: string, e: Entry, busy: boolean): void {
   e.busy = busy
   emit(id, e, { type: 'busy', busy })
   busySink(id, busy)
+}
+
+/**
+ * `task_type`s the CLI reports for background tasks that *are* Claude thinking: a spawned subagent,
+ * a teammate, a workflow, an agentic MCP task. Everything else it tracks as a background task —
+ * above all `local_bash` (a command launched with `run_in_background`) and the `monitor_*` watchers
+ * — runs alongside the conversation without Claude waiting on it, so it must not keep the chat
+ * "typing". A task with no `task_type` at all (older CLI) counts as agent work.
+ */
+const AGENT_TASK_TYPES = new Set(['local_agent', 'remote_agent', 'in_process_teammate', 'local_workflow', 'mcp_task'])
+type TaskKind = 'agent' | 'other'
+function taskKind(taskType: unknown): TaskKind {
+  if (typeof taskType !== 'string' || !taskType) return 'agent'
+  return AGENT_TASK_TYPES.has(taskType) ? 'agent' : 'other'
+}
+
+/**
+ * Claude is busy while the main agent's turn is in flight OR any subagent is still running in the
+ * background. Subagents are background tasks: the Agent tool_use is answered at once ("started")
+ * and the main turn can finish (`result`) long before they do — the CLI then starts a fresh turn
+ * on its own once each task reports back. Deriving busy from both keeps the typing indicator and
+ * the sidebar dot honest instead of stopping on the main agent's early exit.
+ */
+function refreshBusy(id: string, e: Entry): void {
+  setBusy(id, e, !!e.turnActive || e.bgTasks.size > 0)
+}
+
+/**
+ * The main agent is (about to be) producing output. `watchdog` marks a turn we only *expect* — the
+ * CLI itself starts one to consume a finished task's notification; if it never does, the timer
+ * releases busy instead of wedging it.
+ */
+const TASK_TURN_GRACE_MS = 30_000
+function markTurnActive(id: string, e: Entry, watchdog = false): void {
+  // Only guard a turn that is still merely expected: a turn already producing output always ends
+  // with a `result`, and arming the timer against it would drop busy mid-way through a quiet tool call.
+  const arm = watchdog && (!e.turnActive || !!e.taskTurnTimer)
+  e.turnActive = true
+  clearTaskTurnTimer(e)
+  if (arm) {
+    e.taskTurnTimer = setTimeout(() => {
+      e.taskTurnTimer = undefined
+      e.turnActive = false
+      refreshBusy(id, e)
+    }, TASK_TURN_GRACE_MS)
+  }
+  refreshBusy(id, e)
+}
+
+function clearTaskTurnTimer(e: Entry): void {
+  if (e.taskTurnTimer) clearTimeout(e.taskTurnTimer)
+  e.taskTurnTimer = undefined
+}
+
+/** Forget all turn/background-task state (session (re)spawn, exit, new conversation). */
+function resetTurnState(e: Entry): void {
+  clearTaskTurnTimer(e)
+  e.turnActive = false
+  e.bgTasks.clear()
+  e.taskKinds.clear()
+  e.runningTasks.clear()
+  e.workflowItems.clear()
+  e.liveIds = {}
 }
 
 function emitPending(id: string, e: Entry): void {
@@ -272,8 +357,7 @@ export function startChat(id: string, opts: StartOpts): void {
   e.proc = proc
   e.stdoutBuf = ''
   e.ultracodeReqs.clear()
-  e.runningTasks.clear()
-  e.workflowItems.clear()
+  resetTurnState(e)
   proc.stdout?.on('data', (d: Buffer) => {
     e.stdoutBuf += d.toString()
     let i: number
@@ -291,9 +375,9 @@ export function startChat(id: string, opts: StartOpts): void {
   proc.on('exit', (code) => {
     if (e.proc !== proc) return
     e.proc = undefined
-    e.liveId = undefined
     closeRunningTasks(id, e, 'killed')
-    setBusy(id, e, false)
+    resetTurnState(e)
+    refreshBusy(id, e)
     if (e.queue.length) {
       e.queue = []
       emitPending(id, e)
@@ -322,6 +406,7 @@ export function killChat(id: string): void {
   const p = e.proc
   e.proc = undefined
   closeRunningTasks(id, e, 'killed')
+  resetTurnState(e)
   try {
     if (p.pid) process.kill(-p.pid, 'SIGTERM')
   } catch {
@@ -331,7 +416,7 @@ export function killChat(id: string): void {
       /* gone */
     }
   }
-  setBusy(id, e, false)
+  refreshBusy(id, e)
   saveNow(id, e)
 }
 
@@ -490,7 +575,7 @@ export function sendChatMessage(id: string, text: string, start?: () => void, at
   const built = [text.trim(), ...refs].filter(Boolean).join('\n')
   if (!built && !blocks.length) return
   pushItem(id, e, { id: randomUUID(), role: 'user', text, ...(sent.length ? { attachments: sent } : {}), ts: Date.now() })
-  setBusy(id, e, true)
+  markTurnActive(id, e)
   e.turnHadText = false
   writeLine(e, { type: 'user', message: { role: 'user', content: [...blocks, { type: 'text', text: built || '(див. зображення)' }] } })
 }
@@ -525,6 +610,13 @@ function respond(e: Entry, requestId: string, response: unknown): void {
 export function interruptChat(id: string): void {
   const e = entries.get(id)
   if (!e?.proc) return
+  // An interrupt takes the running background subagents down with the turn, and a killed task
+  // never sends its notification — so drop them here, otherwise busy (derived from them) would
+  // never fall back to idle.
+  closeRunningTasks(id, e, 'killed')
+  clearTaskTurnTimer(e)
+  e.bgTasks.clear()
+  e.taskKinds.clear()
   writeLine(e, { type: 'control_request', request_id: randomUUID(), request: { subtype: 'interrupt' } })
 }
 
@@ -560,36 +652,23 @@ export function handleLine(id: string, e: Entry, line: string): void {
       if (msg.subtype === 'init' && typeof msg.session_id === 'string') {
         if (e.sessionId && msg.session_id !== e.sessionId) {
           e.items = []
+          e.subagents = {}
+          resetTurnState(e)
+          refreshBusy(id, e)
           emit(id, e, { type: 'clear' })
           info(id, e, 'Розпочато нову розмову — контекст очищено.')
         }
         e.sessionId = msg.session_id
         sessionIdSink(id, msg.session_id)
-      } else if (msg.subtype === 'task_started') handleTaskStarted(id, e, msg)
+      } else if (msg.subtype === 'background_tasks_changed') handleBackgroundTasks(id, e, msg)
+      else if (msg.subtype === 'task_started') handleTaskStarted(id, e, msg)
       else if (msg.subtype === 'task_progress') handleTaskProgress(id, e, msg)
       else if (msg.subtype === 'task_updated') handleTaskUpdated(id, e, msg)
       else if (msg.subtype === 'task_notification') handleTaskDone(id, e, msg)
       break
-    case 'stream_event': {
-      if (msg.parent_tool_use_id) break // subagent text: not shown
-      const ev = (msg.event ?? {}) as Record<string, unknown>
-      setBusy(id, e, true)
-      if (ev.type === 'content_block_start') {
-        const block = (ev.content_block ?? {}) as ContentBlock
-        if (block.type !== 'text') break
-        if (e.liveId) {
-          appendLive(id, e, '\n\n')
-          break
-        }
-        const item: ChatItem = { id: randomUUID(), role: 'assistant', text: '', ts: Date.now() }
-        e.liveId = item.id
-        pushItem(id, e, item)
-      } else if (ev.type === 'content_block_delta') {
-        const delta = (ev.delta ?? {}) as { type?: string; text?: string }
-        if (delta.type === 'text_delta' && delta.text && e.liveId) appendLive(id, e, delta.text)
-      }
+    case 'stream_event':
+      handleStreamEvent(id, e, (msg.event ?? {}) as Record<string, unknown>, parentId(msg))
       break
-    }
     case 'assistant':
       handleAssistant(id, e, msg)
       break
@@ -619,13 +698,16 @@ export function handleLine(id: string, e: Entry, line: string): void {
       break
     }
     case 'result': {
-      e.liveId = undefined
+      e.liveIds = {}
+      e.turnActive = false
+      clearTaskTurnTimer(e)
       if (msg.is_error && typeof msg.result === 'string' && msg.result) info(id, e, msg.result)
       else if (!e.turnHadText && typeof msg.result === 'string' && msg.result.trim())
         pushItem(id, e, { id: randomUUID(), role: 'assistant', text: msg.result, ts: Date.now() })
-      // The main turn ends while a workflow is still running in the background; the CLI starts a
-      // turn of its own to report it, so keep the session busy across that gap.
-      if (!e.runningTasks.size) setBusy(id, e, false)
+      // Subagents/workflows outlive the turn that spawned them (they are background tasks), so this
+      // `result` is only the *main* agent stepping back: stay busy until the last of them reports
+      // back and its follow-up turn ends (refreshBusy reads bgTasks).
+      refreshBusy(id, e)
       saveNow(id, e)
       break
     }
@@ -661,34 +743,80 @@ function handleInitialize(id: string, e: Entry, r: Record<string, unknown>): voi
   enforceUltracode(e)
 }
 
-function appendLive(id: string, e: Entry, text: string): void {
-  const item = e.items.find((it) => it.id === e.liveId)
-  if (!item) return
-  item.text += text
-  e.turnHadText = true
-  emit(id, e, { type: 'append', itemId: item.id, text })
+/** The subagent a message belongs to (its Agent tool_use id), or undefined for the main agent. */
+function parentId(msg: Record<string, unknown>): string | undefined {
+  const p = msg.parent_tool_use_id
+  return typeof p === 'string' && p ? p : undefined
 }
 
+/** Partial text deltas: stream assistant text into a live item as it arrives (per agent). */
+function handleStreamEvent(id: string, e: Entry, ev: Record<string, unknown>, agentId?: string): void {
+  const key = agentId ?? ''
+  // Subagent output never says anything about the main agent, so it must not resurrect the turn.
+  if (!agentId) markTurnActive(id, e)
+  if (ev.type === 'content_block_start') {
+    const block = (ev.content_block ?? {}) as ContentBlock
+    if (block.type !== 'text') return
+    if (e.liveIds[key]) {
+      appendLive(id, e, '\n\n', agentId)
+      return
+    }
+    const item: ChatItem = { id: randomUUID(), role: 'assistant', text: '', ts: Date.now(), agentId, agentLabel: agentId ? e.subagents[agentId] : undefined }
+    e.liveIds[key] = item.id
+    pushItem(id, e, item)
+  } else if (ev.type === 'content_block_delta') {
+    const delta = (ev.delta ?? {}) as { type?: string; text?: string }
+    if (delta.type === 'text_delta' && delta.text && e.liveIds[key]) appendLive(id, e, delta.text, agentId)
+  }
+}
+
+function appendLive(id: string, e: Entry, text: string, agentId?: string): void {
+  const liveId = e.liveIds[agentId ?? '']
+  const item = liveId ? e.items.find((it) => it.id === liveId) : undefined
+  if (!item) return
+  item.text += text
+  if (!agentId) e.turnHadText = true
+  emit(id, e, { type: 'append', itemId: item.id, text })
+  scheduleSave(id, e)
+}
+
+/**
+ * A complete assistant message: the joined text is authoritative, so the live item is finalized
+ * with it; tool calls become running tool items. The message's parent_tool_use_id tags every item
+ * with its subagent (badge + colour in the transcript).
+ */
 function handleAssistant(id: string, e: Entry, msg: Record<string, unknown>): void {
-  if (msg.parent_tool_use_id) return
-  setBusy(id, e, true)
+  const agentId = parentId(msg)
+  // Main-agent output means the turn is live — including the one the CLI starts by itself after a
+  // background subagent reports back (there is no user message to flip busy on there).
+  if (!agentId) markTurnActive(id, e)
+  const key = agentId ?? ''
+  const agentLabel = agentId ? e.subagents[agentId] : undefined
   const message = (msg.message ?? {}) as { content?: ContentBlock[] }
   const blocks = Array.isArray(message.content) ? message.content : []
   const text = blocks.filter((b) => b.type === 'text' && b.text).map((b) => b.text).join('\n\n')
   if (text) {
-    const live = e.liveId ? e.items.find((it) => it.id === e.liveId) : undefined
+    const liveId = e.liveIds[key]
+    const live = liveId ? e.items.find((it) => it.id === liveId) : undefined
     if (live) {
       live.text = text
       emit(id, e, { type: 'update', item: live })
     } else {
-      pushItem(id, e, { id: randomUUID(), role: 'assistant', text, ts: Date.now() })
+      pushItem(id, e, { id: randomUUID(), role: 'assistant', text, ts: Date.now(), agentId, agentLabel })
     }
-    e.liveId = undefined
-    e.turnHadText = true
+    e.liveIds[key] = undefined
+    if (!agentId) e.turnHadText = true
   }
   for (const b of blocks) {
     if (b.type !== 'tool_use' || !b.id || b.name === 'AskUserQuestion') continue
-    pushItem(id, e, { id: b.id, role: 'tool', toolName: b.name ?? 'tool', text: summarizeToolUse(b.name ?? '', b.input), ts: Date.now() })
+    // An Agent/Task call spawns a subagent — remember its label so its later (parented) messages
+    // can be badged in the transcript.
+    if (b.name === 'Task' || b.name === 'Agent') {
+      const inp = (b.input ?? {}) as { description?: string; subagent_type?: string }
+      e.subagents[b.id] = inp.description || inp.subagent_type || 'субагент'
+    }
+    const bg = b.name === 'Bash' && !!(b.input as { run_in_background?: unknown })?.run_in_background
+    pushItem(id, e, { id: b.id, role: 'tool', toolName: b.name ?? 'tool', text: summarizeToolUse(b.name ?? '', b.input), ts: Date.now(), agentId, agentLabel, background: bg || undefined })
   }
 }
 
@@ -740,6 +868,7 @@ export function summarizeToolUse(name: string, input: unknown, max = 300): strin
   let s: string
   if (name === 'Bash' && typeof inp.command === 'string') s = inp.command
   else if ((name === 'Read' || name === 'Edit' || name === 'Write') && typeof inp.file_path === 'string') s = inp.file_path
+  else if ((name === 'Agent' || name === 'Task') && (typeof inp.description === 'string' || typeof inp.prompt === 'string')) s = (inp.description as string) || (inp.prompt as string)
   else if (name === 'Workflow') {
     // Ultracode launches multi-agent workflows: name the run from the script's meta, not its source.
     const meta = workflowMeta(typeof inp.script === 'string' ? inp.script : '')
@@ -778,14 +907,43 @@ function workflowMeta(script: string): { name?: string; description?: string } {
 /** Truncation cap for the prompt/result previews kept per agent (they are persisted). */
 const WF_PREVIEW = 600
 
-/** A background task was launched: hold its tool row open until the task itself reports back. */
+/**
+ * The CLI's authoritative snapshot of the background tasks still running. Only the agent ones feed
+ * busy (see AGENT_TASK_TYPES); the rest are remembered by kind alone so their notification can be
+ * told apart later. An agent task dropping out of the list means it just finished — the CLI will
+ * start a turn of its own to consume its notification, so keep the session busy across that gap.
+ */
+function handleBackgroundTasks(id: string, e: Entry, msg: Record<string, unknown>): void {
+  const tasks = Array.isArray(msg.tasks) ? (msg.tasks as { task_id?: unknown; task_type?: unknown }[]) : []
+  const next = new Set<string>()
+  for (const t of tasks) {
+    const taskId = typeof t?.task_id === 'string' ? t.task_id : ''
+    if (!taskId) continue
+    const kind = taskKind(t?.task_type)
+    e.taskKinds.set(taskId, kind)
+    if (kind === 'agent') next.add(taskId)
+  }
+  const finished = [...e.bgTasks].some((t) => !next.has(t))
+  e.bgTasks = next
+  if (finished && !e.turnActive) markTurnActive(id, e, true)
+  else refreshBusy(id, e)
+}
+
+/**
+ * A background task was launched (a subagent, a backgrounded shell job, a workflow). Its tool call
+ * is answered with a tool_result right away, so hold the row open until the task itself reports
+ * back in handleTaskDone.
+ */
 function handleTaskStarted(id: string, e: Entry, msg: Record<string, unknown>): void {
   const toolUseId = typeof msg.tool_use_id === 'string' ? msg.tool_use_id : ''
   if (!toolUseId) return
   const item = e.items.find((it) => it.id === toolUseId)
   if (!item) return
   e.runningTasks.add(toolUseId)
-  // Only workflows carry a plan; a plain background agent just keeps spinning until its notification.
+  const label = (typeof msg.description === 'string' && msg.description) || (typeof msg.subagent_type === 'string' && msg.subagent_type) || ''
+  if (label && (item.toolName === 'Agent' || item.toolName === 'Task')) e.subagents[toolUseId] = label
+  refreshBusy(id, e)
+  // Only workflows carry a plan; a plain background task just keeps spinning until its notification.
   if (msg.task_type !== 'local_workflow') return
   const taskId = typeof msg.task_id === 'string' ? msg.task_id : ''
   const meta = workflowMeta(typeof msg.prompt === 'string' ? msg.prompt : '')
@@ -919,6 +1077,12 @@ function handleTaskDone(id: string, e: Entry, msg: Record<string, unknown>): voi
   const toolUseId = typeof msg.tool_use_id === 'string' ? msg.tool_use_id : ''
   const taskId = typeof msg.task_id === 'string' ? msg.task_id : ''
   const summary = typeof msg.summary === 'string' ? msg.summary.trim() : ''
+  let kind: TaskKind = 'agent'
+  if (taskId) {
+    kind = e.taskKinds.get(taskId) ?? 'agent'
+    e.bgTasks.delete(taskId)
+    e.taskKinds.delete(taskId)
+  }
   const wfItem = workflowItem(e, msg)
   if (wfItem?.workflow) {
     // The final usage lands here too (the last progress event can be throttled away).
@@ -928,14 +1092,19 @@ function handleTaskDone(id: string, e: Entry, msg: Record<string, unknown>): voi
   }
   const item = wfItem ?? (toolUseId ? e.items.find((it) => it.id === toolUseId) : undefined)
   if (toolUseId) e.runningTasks.delete(toolUseId)
-  if (!item) return
-  if (!item.done) {
-    item.done = true
-    item.isError = msg.status !== 'completed'
-    item.endTs = Date.now()
-    if (summary) item.output = summary
+  if (item) {
+    if (!item.done) {
+      item.done = true
+      item.isError = msg.status !== 'completed'
+      item.endTs = Date.now()
+      if (summary) item.output = summary
+    }
+    emit(id, e, { type: 'update', item })
   }
-  emit(id, e, { type: 'update', item })
+  // A subagent's notification is followed by a turn the CLI starts on its own (mark it expected);
+  // a plain background shell job has nothing to wait for.
+  if (kind === 'agent') markTurnActive(id, e, true)
+  else refreshBusy(id, e)
 }
 
 /** The process is gone (exit/kill/interrupt): nothing still running can ever report again. */
@@ -948,7 +1117,7 @@ function closeRunningTasks(id: string, e: Entry, status: WorkflowStatus): void {
       item.done = true
       item.isError = true
       item.endTs = Date.now()
-      item.output = item.workflow ? 'Воркфлов перервано.' : 'Фонову задачу перервано.'
+      item.output = item.workflow ? 'Воркфлов перервано.' : item.toolName === 'Agent' || item.toolName === 'Task' ? 'Субагента перервано.' : 'Фонову задачу перервано.'
     }
     emit(id, e, { type: 'update', item })
   }
