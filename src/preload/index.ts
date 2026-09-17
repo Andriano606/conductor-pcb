@@ -89,6 +89,8 @@ const api = {
   },
   answerChat: (id: string, answer: ChatAnswer): void => ipcRenderer.send('chat:answer', id, answer),
   interruptChat: (id: string): void => ipcRenderer.send('chat:interrupt', id),
+  /** Stop a running multi-agent workflow (the CLI's stop_task) — the panel's «Зупинити воркфлов». */
+  stopChatWorkflow: (id: string, taskId: string): void => ipcRenderer.send('chat:stopWorkflow', id, taskId),
   restartChat: (id: string): Promise<boolean> => ipcRenderer.invoke('chat:restart', id),
   // Chat sessions (tabs; multiple per project). The session id is the chat id above.
   createSession: (projectId: string): Promise<ChatSession | undefined> => ipcRenderer.invoke('session:create', projectId),

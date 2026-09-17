@@ -10,7 +10,7 @@ import type { ChatAnswer, PcbProject } from '../shared/types'
 import { addProjectFromDir, closeChatSession, createChatSession, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, renameChatSession, applyGlobalRulesToProject, listKernels, refreshBoards, runChecks, setProjectProfiles, setProjectRuleOverride, startSessionChat, updateProject } from './projects'
 import { isClaudeConfigDir } from './configMerge'
 import { pollUsage, refreshUsageSoon } from './usagePoller'
-import { answerChat, attachChat, interruptChat, sendChatMessage, setChatParams } from './claudeChat'
+import { answerChat, attachChat, interruptChat, sendChatMessage, setChatParams, stopChatWorkflow } from './claudeChat'
 
 export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle('rules:snapshot', (_e, projectId?: string) => snapshot(projectId))
@@ -128,6 +128,7 @@ export function registerIpc(win: BrowserWindow): void {
   })
   ipcMain.on('chat:answer', (_e, id: string, answer: ChatAnswer) => answerChat(id, answer))
   ipcMain.on('chat:interrupt', (_e, id: string) => interruptChat(id))
+  ipcMain.on('chat:stopWorkflow', (_e, id: string, taskId: string) => stopChatWorkflow(id, taskId))
   ipcMain.handle('chat:restart', (_e, id: string) => startSessionChat(id, app.getPath('userData'), true))
   // ---- chat sessions (tabs within a project); each change pushes the fresh project list
   const projectsChanged = (): void => win.webContents.send('projects:changed', getConfig().projects)

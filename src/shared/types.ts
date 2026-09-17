@@ -283,6 +283,11 @@ export interface ChatSession {
   /** Runtime knobs chosen in the chat toolbar (persisted, re-applied on respawn). */
   claudeModel?: string
   claudeEffort?: string
+  /**
+   * Ultracode chosen in the effort selector (the last level). The CLI keeps it in its per-process
+   * flag layer, so it is persisted here and re-applied after every handshake.
+   */
+  claudeUltracode?: boolean
 }
 
 export interface PcbProject {
@@ -356,7 +361,82 @@ export interface ChatItem {
   answer?: boolean
   /** User items: files attached to this message. */
   attachments?: ChatAttachment[]
+  /**
+   * Workflow tool items only: the multi-agent run this call started — its plan (phases) and the
+   * live per-agent progress. Updated on every task_progress event and persisted with the
+   * transcript, so a finished run stays inspectable.
+   */
+  workflow?: WorkflowRun
   ts: number
+  endTs?: number
+}
+
+// ---- Multi-agent workflows (the Workflow tool, launched by Claude in ultracode) ----
+//
+// A workflow is one background task (`task_type: 'local_workflow'`) that orchestrates many
+// subagents from a script. The CLI reports its plan and live per-agent progress on
+// `system/task_progress` events as a `workflow_progress` snapshot array; these types are our
+// normalized view of it, carried on the Workflow tool's own ChatItem (same as conductor-linux).
+
+/** One phase of a workflow's plan (from the script's `meta.phases`). */
+export interface WorkflowPhase {
+  /** 1-based phase index, as reported by the CLI. */
+  index: number
+  title: string
+  kind?: string
+}
+
+/** 'start' — queued or just launched · 'progress' — running · 'done' · 'error' — failed/blocked/skipped */
+export type WorkflowAgentState = 'start' | 'progress' | 'done' | 'error'
+
+/** One agent of a workflow run — a row of the panel's agent list. */
+export interface WorkflowAgent {
+  /** 1-based agent index (stable id within the run). */
+  index: number
+  label: string
+  phaseIndex?: number
+  phaseTitle?: string
+  agentId?: string
+  agentType?: string
+  model?: string
+  state: WorkflowAgentState
+  queuedAt?: number
+  startedAt?: number
+  /** Last progress heartbeat (ms) — drives the "тиша 1хв 13с" hint. */
+  lastProgressAt?: number
+  attempt?: number
+  lastToolName?: string
+  lastToolSummary?: string
+  promptPreview?: string
+  resultPreview?: string
+  error?: string
+  blocked?: boolean
+  cached?: boolean
+  isolation?: string
+  tokens?: number
+  toolCalls?: number
+  durationMs?: number
+}
+
+export type WorkflowStatus = 'running' | 'completed' | 'failed' | 'killed'
+
+/** A multi-agent workflow run, attached to its Workflow tool item. */
+export interface WorkflowRun {
+  /** The CLI's background-task id — the handle used to stop the run. */
+  taskId: string
+  name: string
+  description: string
+  status: WorkflowStatus
+  phases: WorkflowPhase[]
+  agents: WorkflowAgent[]
+  totalTokens: number
+  toolUses: number
+  durationMs: number
+  /** What the run is doing right now ("Фаза: агент"). */
+  current?: string
+  /** The CLI's closing summary line (arrives with the task notification). */
+  summary?: string
+  startTs: number
   endTs?: number
 }
 
@@ -392,7 +472,10 @@ export interface ChatModelOption {
 export interface ChatModelState {
   models: ChatModelOption[]
   model?: string
+  /** The level in effect; `'ultracode'` while ultracode is on (it replaces the level, never sits beside it). */
   effort?: string
+  /** True when the selected effort is ultracode (xhigh + standing multi-agent workflows) — only for the ⚡ styling. */
+  ultracode?: boolean
 }
 
 export interface ChatAttachment {

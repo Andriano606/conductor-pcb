@@ -40,6 +40,11 @@ describe('chat sessions in the main process', () => {
   it('startSessionChat resumes the tab\'s own Claude session and model', () => {
     expect(startSessionChat('p1', userData)).toBe(true)
     expect(startChat).toHaveBeenCalledWith('p1', expect.objectContaining({ resume: 'legacy', model: 'opus', cwd: join(tmp, 'board') }))
+    // ultracode lives in the CLI's per-process flag layer, so a restart has to carry the persisted choice
+    patchSession('p1', { claudeUltracode: true })
+    startSessionChat('p1', userData, true)
+    expect(restartChat).toHaveBeenLastCalledWith('p1', expect.objectContaining({ ultracode: true }))
+    vi.mocked(restartChat).mockClear()
     expect(startSessionChat('nope', userData)).toBe(false)
   })
 
@@ -54,9 +59,12 @@ describe('chat sessions in the main process', () => {
 
   it('patches and renames a tab', () => {
     const id = getConfig().projects[0].sessions[1].id
-    patchSession(id, { claudeSessionId: 'cs-new', claudeEffort: 'high' })
+    patchSession(id, { claudeSessionId: 'cs-new', claudeEffort: 'high', claudeUltracode: true })
     renameChatSession(id, ' Плани ')
-    expect(getSession(id)?.session).toMatchObject({ claudeSessionId: 'cs-new', claudeEffort: 'high', title: 'Плани' })
+    expect(getSession(id)?.session).toMatchObject({ claudeSessionId: 'cs-new', claudeEffort: 'high', claudeUltracode: true, title: 'Плани' })
+    // ultracode is a boolean, so `false` must persist as a real value (it is the rollback state)
+    patchSession(id, { claudeUltracode: false })
+    expect(getSession(id)?.session.claudeUltracode).toBe(false)
   })
 
   it('closes a tab (kills + drops transcript) but never the last one', () => {

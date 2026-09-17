@@ -52,6 +52,29 @@ describe('ChatView', () => {
     fireEvent.click(screen.getByText(/Дозволити/))
     expect(api.answerChat).toHaveBeenCalledWith('p1', { kind: 'permission', requestId: 'r', allow: true })
   })
+  // Ultracode is not a toggle beside the effort levels — the CLI treats it as one of them (the
+  // last), so the selector offers it as its last item and shows it instead of a level while on.
+  it('offers ultracode as the last effort level and shows it as the selection with ⚡', async () => {
+    const models = [{ value: 'default', displayName: 'Default', supportsEffort: true, supportedEffortLevels: ['low', 'high', 'ultracode'] }]
+    api.attachChat.mockResolvedValueOnce({ items: [], pending: null, busy: false, seq: 0, running: true, modelState: { models, model: 'default', effort: 'high', ultracode: false } })
+    api.setChatEffort = vi.fn().mockResolvedValue({ ok: true })
+    const { unmount } = render(<ChatView project={project} session={session} />)
+    const trigger = await screen.findByTitle('Рівень зусиль (thinking)')
+    expect(trigger).toHaveTextContent('high')
+    expect(trigger.className).not.toContain('ultra')
+    fireEvent.click(trigger)
+    const items = screen.getAllByRole('menuitemradio').map((el) => el.textContent)
+    expect(items[items.length - 1]).toContain('ultracode')
+    fireEvent.click(screen.getByText('⚡ ultracode'))
+    expect(api.setChatEffort).toHaveBeenCalledWith('p1', 'ultracode')
+    unmount()
+    // while on: shown as the current selection, never alongside a level
+    api.attachChat.mockResolvedValueOnce({ items: [], pending: null, busy: false, seq: 0, running: true, modelState: { models, model: 'default', effort: 'ultracode', ultracode: true } })
+    render(<ChatView project={project} session={session} />)
+    const on = await screen.findByTitle(/Ультракод/)
+    expect(on).toHaveTextContent('⚡ ultracode')
+    expect(on.className).toContain('ultra on')
+  })
   it('is keyed by the session tab, not the project', async () => {
     const tab2 = { id: 'tab2', createdAt: 2, title: 'NRST' }
     render(<ChatView project={{ ...project, sessions: [session, tab2] }} session={tab2} />)

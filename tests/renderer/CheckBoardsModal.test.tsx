@@ -25,7 +25,7 @@ describe('CheckBoardsModal', () => {
   beforeEach(() => {
     ;(window as unknown as { api: unknown }).api = api
     api.listProjects.mockResolvedValue([project])
-    useStore.setState({ projects: [project], checkModalProject: 'p1', checkProgress: {}, checking: {}, kicad: {}, checkResult: null, expandedProjects: {} })
+    useStore.setState({ projects: [project], checkModalProject: 'p1', checkProgress: {}, checking: {}, kicad: {}, checkResult: null })
     useChatStore.setState({ chats: {} })
   })
   it('says how many rules will run for the project', async () => {
@@ -61,23 +61,21 @@ describe('CheckBoardsModal', () => {
   })
 })
 
-describe('ProjectSidebar boards', () => {
-  it('expands a project row into its board list with last counts and an open-in-KiCad action', async () => {
+describe('ProjectSidebar', () => {
+  it('renders each project as a plain card (no board list) whose active state is the left accent line', () => {
     const api = { listBoards: vi.fn().mockResolvedValue([A, B]), listProjects: vi.fn().mockResolvedValue([project]), openBoard: vi.fn() }
     ;(window as unknown as { api: unknown }).api = api
-    useStore.setState({ projects: [project], config: { activeProjectId: 'p1' } as never, kicad: { p1: { running: true, apiSocket: true, runningBoards: [A] } }, expandedProjects: {}, addError: null })
+    useStore.setState({ projects: [project, { ...project, id: 'p2', name: 'other' }], config: { activeProjectId: 'p1' } as never, kicad: { p1: { running: true, apiSocket: true, runningBoards: [A] } }, addError: null })
     useChatStore.setState({ chats: {} })
     render(<ProjectSidebar />)
+    // The boards live in the «Перевірити плату» picker now, not under the project row.
+    expect(screen.queryByLabelText(/Показати плати/)).not.toBeInTheDocument()
     expect(screen.queryByText('sub/b.kicad_pcb')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByLabelText('Показати плати'))
-    expect(api.listBoards).toHaveBeenCalledWith('p1')
-    expect(await screen.findByText('sub/b.kicad_pcb')).toBeInTheDocument()
-    expect(screen.getByText('2/1/0')).toBeInTheDocument()
-    expect(screen.queryByText('—')).not.toBeInTheDocument() // an unchecked board shows no placeholder
-    expect(document.querySelector('.project-item.expanded.active')).not.toBeNull()
-    fireEvent.click(screen.getByLabelText('Відкрити sub/b.kicad_pcb в KiCad'))
-    expect(api.openBoard).toHaveBeenCalledWith('p1', B)
-    fireEvent.click(screen.getByLabelText('Сховати плати'))
-    expect(screen.queryByText('sub/b.kicad_pcb')).not.toBeInTheDocument()
+    expect(api.listBoards).not.toHaveBeenCalled()
+    const cards = document.querySelectorAll('.project-item')
+    expect(cards).toHaveLength(2)
+    expect(cards[0].classList.contains('active')).toBe(true)
+    expect(cards[1].classList.contains('active')).toBe(false)
+    expect(cards[0].querySelector('.project-name')?.textContent).toBe('board')
   })
 })

@@ -43,8 +43,6 @@ interface State {
   checkProgress: Record<string, CheckProgress>
   /** The last finished «Перевірити плату» run, shown in CheckReportModal until closed. */
   checkResult: MultiCheckResult | null
-  /** Project ids whose row in the left sidebar is expanded (boards listed). */
-  expandedProjects: Record<string, boolean>
   addError: string | null
   customPrompts: CustomPrompt[]
   claudeProfiles: ClaudeProfile[]
@@ -88,7 +86,6 @@ interface State {
   runChecks: (projectId: string, boards: string[]) => Promise<void>
   applyCheckProgress: (p: CheckProgress) => void
   closeCheckResult: () => void
-  toggleExpanded: (projectId: string) => void
   createCustomPrompt: (title: string, content: string) => Promise<void>
   updateCustomPrompt: (p: CustomPrompt) => Promise<void>
   deleteCustomPrompt: (id: string) => Promise<void>
@@ -142,7 +139,6 @@ export const useStore = create<State>((set, get) => ({
   checkModalRules: null,
   checkProgress: {},
   checkResult: null,
-  expandedProjects: {},
   addError: null,
   customPrompts: [],
   claudeProfiles: [],
@@ -283,7 +279,6 @@ export const useStore = create<State>((set, get) => ({
   },
   applyCheckProgress: (p) => set({ checkProgress: { ...get().checkProgress, [p.boardFile]: p } }),
   closeCheckResult: () => set({ checkResult: null }),
-  toggleExpanded: (projectId) => set({ expandedProjects: { ...get().expandedProjects, [projectId]: !get().expandedProjects[projectId] } }),
   applySnapshot: (s) => {
     // The main process pushes the global snapshot on any file change; the tab shows the
     // active project's scope, so re-fetch that and keep the pushed one as the global library.

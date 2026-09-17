@@ -57,7 +57,12 @@ void app.whenReady().then(async () => {
   })
   // `id` is a session (tab) id: the chat key persists its Claude session id and model knobs on that tab.
   onChatSessionId((id, sessionId) => patchSession(id, { claudeSessionId: sessionId || undefined }))
-  onChatParams((id, params) => patchSession(id, { claudeModel: params.model, claudeEffort: params.effort }))
+  onChatParams((id, params) =>
+    patchSession(id, {
+      ...('model' in params || 'effort' in params ? { claudeModel: params.model, claudeEffort: params.effort } : {}),
+      ...('ultracode' in params ? { claudeUltracode: params.ultracode } : {})
+    })
+  )
   onChatBusy((id, busy) => {
     if (!win.isDestroyed()) win.webContents.send('chat:busy', { id, busy })
   })

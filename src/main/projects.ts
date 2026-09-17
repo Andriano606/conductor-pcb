@@ -234,7 +234,8 @@ export function startSessionChat(sessionId: string, userData: string, restart = 
     mcpConfig: mcpConfigFor(p, userData),
     args: cfg.claudeArgs,
     model: session.claudeModel,
-    effort: session.claudeEffort
+    effort: session.claudeEffort,
+    ultracode: session.claudeUltracode
   }
   if (restart) restartChat(sessionId, opts)
   else if (!chatRunning(sessionId)) startChat(sessionId, opts)

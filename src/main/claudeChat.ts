@@ -3,14 +3,16 @@
  * (`-p --input-format stream-json --output-format stream-json`). The transcript is a
  * structured ChatItem[] mirrored to the renderer through sequenced events; permission
  * requests and AskUserQuestion arrive as control_request/can_use_tool and become ChatPending.
- * Slimmed down from conductor-linux's claudeChat.ts (no subagents/workflows/local commands).
+ * Slimmed down from conductor-linux's claudeChat.ts (no subagent transcripts / local commands), but
+ * with its multi-agent workflow tracking: the Workflow tool (which Claude reaches for in ultracode)
+ * is one background task whose plan and per-agent progress are folded onto the tool's ChatItem.
  */
 import { spawn } from 'child_process'
 import type { ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import type { ChatAnswer, ChatAttachment, ChatCommand, ChatEvent, ChatItem, ChatModelOption, ChatModelState, ChatPending, ChatQuestion, ChatSnapshot } from '../shared/types'
+import type { ChatAnswer, ChatAttachment, ChatCommand, ChatEvent, ChatItem, ChatModelOption, ChatModelState, ChatPending, ChatQuestion, ChatSnapshot, WorkflowAgent, WorkflowAgentState, WorkflowPhase, WorkflowRun, WorkflowStatus } from '../shared/types'
 import { buildEnv } from './env'
 
 export interface StartOpts {
@@ -21,6 +23,12 @@ export interface StartOpts {
   args?: string
   model?: string
   effort?: string
+  /**
+   * Ultracode (xhigh effort + standing multi-agent orchestration). The CLI keeps it in its
+   * session-scoped flag layer, so it is re-applied with an apply_flag_settings control request
+   * after every handshake — not as a CLI flag (see enforceUltracode).
+   */
+  ultracode?: boolean
   /** Extra environment (CLAUDE_CONFIG_DIR of a merged profile dir, profile env vars). */
   env?: NodeJS.ProcessEnv
   /** Human label of the Claude config profile(s) in use, for the start notice. */
@@ -45,7 +53,39 @@ interface Entry {
   models?: ChatModelOption[]
   /** Set after the first spawn; later (re)starts push a start notice into the transcript. */
   everSpawned?: boolean
+  /**
+   * In-flight apply_flag_settings requests for ultracode: request id → the value we asked for.
+   * The CLI refuses ultracode when dynamic workflows are off or the model/org disallows xhigh,
+   * so a rejection has to roll our state back instead of leaving the selector claiming a level
+   * that never took effect.
+   */
+  ultracodeReqs: Map<string, boolean>
+  /**
+   * tool_use ids of background tasks (workflows) still running. The CLI answers such a call with a
+   * tool_result immediately ("launched"), so these ids are held back from being flipped done until
+   * their task_notification.
+   */
+  runningTasks: Set<string>
+  /** Live workflow runs: the CLI's background-task id → the id of the Workflow tool item carrying the run. */
+  workflowItems: Map<string, string>
 }
+
+/** Persisted patch of the runtime knobs chosen in the composer (model / effort / ultracode). */
+export interface ChatParamsPatch {
+  model?: string
+  effort?: string
+  ultracode?: boolean
+}
+
+/**
+ * Ultracode is not a mode beside the effort levels — the CLI treats it as one *of* them
+ * (`/effort [low|…|max|ultracode]`, "Current effort level: ultracode") and picking any ordinary
+ * level turns it off. So it is the last option of the effort selector here too, and the two can
+ * never both look on. Being last does NOT make it the strongest effort: the CLI runs ultracode at
+ * **xhigh**, so `max` is a higher raw level — what ultracode adds on top is the standing
+ * multi-agent orchestration (Claude reaches for the Workflow tool on every substantive task).
+ */
+export const ULTRACODE = 'ultracode'
 
 const MAX_ITEMS = 2000
 const entries = new Map<string, Entry>()
@@ -53,7 +93,7 @@ let storageDir: string | null = null
 let emitSink: (id: string, seq: number, ev: ChatEvent) => void = () => {}
 let sessionIdSink: (id: string, sessionId: string) => void = () => {}
 let busySink: (id: string, busy: boolean) => void = () => {}
-let paramsSink: (id: string, params: { model?: string; effort?: string }) => void = () => {}
+let paramsSink: (id: string, params: ChatParamsPatch) => void = () => {}
 export function onChatParams(fn: typeof paramsSink): void {
   paramsSink = fn
 }
@@ -75,7 +115,7 @@ export function onChatBusy(fn: typeof busySink): void {
 function ensure(id: string): Entry {
   let e = entries.get(id)
   if (!e) {
-    e = { items: [], seq: 0, busy: false, queue: [], stdoutBuf: '', stderrTail: '', turnHadText: false }
+    e = { items: [], seq: 0, busy: false, queue: [], stdoutBuf: '', stderrTail: '', turnHadText: false, ultracodeReqs: new Map(), runningTasks: new Set(), workflowItems: new Map() }
     entries.set(id, e)
     load(id, e)
   }
@@ -120,7 +160,15 @@ function load(id: string, e: Entry): void {
   if (!f || !existsSync(f)) return
   try {
     const d = JSON.parse(readFileSync(f, 'utf8')) as { items?: ChatItem[] }
-    e.items = Array.isArray(d.items) ? d.items.map((it) => (it.role === 'tool' && !it.done ? { ...it, done: true, isError: true } : it)) : []
+    e.items = Array.isArray(d.items)
+      ? d.items.map((it) => {
+          if (it.role !== 'tool' || it.done) return it
+          // A workflow killed with the app can never report again — freeze the run so the panel
+          // doesn't show agents spinning forever.
+          if (it.workflow?.status === 'running') finishWorkflowRun(it.workflow, 'killed')
+          return { ...it, done: true, isError: true }
+        })
+      : []
   } catch {
     e.items = []
   }
@@ -194,7 +242,9 @@ export function describeStart(opts: StartOpts): string {
   const mode = /--permission-mode[= ]+([\w-]+)/.exec(args)?.[1] ?? 'default'
   const parts = [
     `модель: ${opts.model ?? 'default'}`,
-    `зусилля: ${opts.effort ?? 'default'}`,
+    // Ultracode replaces the level rather than sitting beside it, so naming `opts.effort` here
+    // would report a level the session is not actually running.
+    `зусилля: ${opts.ultracode ? 'ultracode (xhigh + воркфлови)' : (opts.effort ?? 'default')}`,
     `режим: ${mode}`,
     `resume: ${opts.resume ? `так (${opts.resume.slice(0, 8)}…)` : 'ні — нова розмова'}`,
     `MCP: ${mcp.length ? `${mcp.length} (${mcp.join(', ')})` : 'немає'}`,
@@ -221,6 +271,9 @@ export function startChat(id: string, opts: StartOpts): void {
   const proc = spawn(shell, ['-ilc', command], { cwd: opts.cwd, env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] })
   e.proc = proc
   e.stdoutBuf = ''
+  e.ultracodeReqs.clear()
+  e.runningTasks.clear()
+  e.workflowItems.clear()
   proc.stdout?.on('data', (d: Buffer) => {
     e.stdoutBuf += d.toString()
     let i: number
@@ -239,6 +292,7 @@ export function startChat(id: string, opts: StartOpts): void {
     if (e.proc !== proc) return
     e.proc = undefined
     e.liveId = undefined
+    closeRunningTasks(id, e, 'killed')
     setBusy(id, e, false)
     if (e.queue.length) {
       e.queue = []
@@ -267,6 +321,7 @@ export function killChat(id: string): void {
   if (!e?.proc) return
   const p = e.proc
   e.proc = undefined
+  closeRunningTasks(id, e, 'killed')
   try {
     if (p.pid) process.kill(-p.pid, 'SIGTERM')
   } catch {
@@ -296,9 +351,22 @@ export function restartChat(id: string, opts: StartOpts): void {
 
 // ---------------------------------------------------------------- API used by ipc
 
+/** The model's effort levels plus ultracode as the last one (see ULTRACODE). */
+function withUltracode(m: ChatModelOption): ChatModelOption {
+  if (!m.supportsEffort || !m.supportedEffortLevels?.length) return m
+  return { ...m, supportedEffortLevels: [...m.supportedEffortLevels.filter((l) => l !== ULTRACODE), ULTRACODE] }
+}
+
 function modelState(e: Entry): ChatModelState | undefined {
   if (!e.models) return undefined
-  return { models: e.models, model: e.opts?.model ?? e.models.find((m) => m.value === 'default')?.value ?? e.models[0]?.value, effort: e.opts?.effort }
+  const ultracode = e.opts?.ultracode === true
+  return {
+    models: e.models.map(withUltracode),
+    model: e.opts?.model ?? e.models.find((m) => m.value === 'default')?.value ?? e.models[0]?.value,
+    // Ultracode replaces the level rather than sitting beside it, so it *is* the current effort while on.
+    effort: ultracode ? ULTRACODE : e.opts?.effort,
+    ultracode
+  }
 }
 
 export function attachChat(id: string): ChatSnapshot {
@@ -306,17 +374,88 @@ export function attachChat(id: string): ChatSnapshot {
   return { items: e.items, pending: e.queue[0]?.pending ?? null, busy: e.busy, seq: e.seq, running: !!e.proc, commands: e.commands, modelState: modelState(e) }
 }
 
-/** Change the model/effort: persisted via the params sink and applied by restarting the session (resumed). */
+/**
+ * Change the model/effort: persisted via the params sink and applied by restarting the session
+ * (resumed). `effort: 'ultracode'` is a level like any other from the user's side but a different
+ * mechanism underneath: a live apply_flag_settings flag (no restart) instead of a `--effort`
+ * respawn. Switching *away* from ultracode therefore does both — turns the flag off live, then
+ * restarts only if the stored level itself also changed.
+ */
 export function setChatParams(id: string, params: { model?: string; effort?: string }): { ok: boolean; reason?: string } {
   const e = ensure(id)
   if (e.busy) return { ok: false, reason: 'зачекайте завершення відповіді' }
   if (!e.opts) return { ok: false, reason: 'сесію не запущено' }
+  if (params.effort === ULTRACODE) {
+    if (params.model !== undefined && params.model !== e.opts.model) return { ok: false, reason: 'модель і ultracode змінюються окремо' }
+    if (e.opts.ultracode !== true) {
+      setUltracode(id, e, true)
+      info(id, e, '⚡ Ультракод увімкнено — зусилля xhigh (не max: max вищий, але без воркфловів) + Claude сам запускає мультиагентні воркфлови на кожній суттєвій задачі.')
+    }
+    return { ok: true }
+  }
+  if (params.effort !== undefined && e.opts.ultracode === true) {
+    setUltracode(id, e, false)
+    info(id, e, '✅ Ультракод вимкнено — сесія повертається до звичайного рівня зусиль.')
+  }
   const next = { ...e.opts, ...params }
   if (next.model === e.opts.model && next.effort === e.opts.effort) return { ok: true }
   paramsSink(id, { model: next.model, effort: next.effort })
   info(id, e, `Сесію перезапущено: модель ${next.model ?? 'типова'}, зусилля ${next.effort ?? 'типові'}.`)
   restartChat(id, next)
   return { ok: true }
+}
+
+/**
+ * Turn ultracode on/off for the running session. The CLI exposes it as a session-scoped *flag
+ * setting* (not a CLI flag): apply_flag_settings merges it into the active configuration live —
+ * effort jumps to xhigh and Claude is told to reach for the Workflow tool on every substantive
+ * task. Persisted so the choice survives a restart (see enforceUltracode).
+ */
+function setUltracode(id: string, e: Entry, on: boolean): void {
+  if (!e.opts) return
+  e.opts = { ...e.opts, ultracode: on }
+  paramsSink(id, { ultracode: on })
+  if (e.proc) requestUltracode(e, on)
+  emit(id, e, { type: 'meta', commands: e.commands, modelState: modelState(e) })
+}
+
+/**
+ * Ask the CLI to apply ultracode, remembering the request so its answer can be matched: the CLI
+ * rejects it when dynamic workflows are off or the model/org doesn't allow xhigh effort, and that
+ * rejection has to undo our optimistic state (see handleUltracodeResponse).
+ */
+function requestUltracode(e: Entry, on: boolean): void {
+  const requestId = randomUUID()
+  e.ultracodeReqs.set(requestId, on)
+  writeLine(e, { type: 'control_request', request_id: requestId, request: { subtype: 'apply_flag_settings', settings: { ultracode: on } } })
+}
+
+/**
+ * The CLI's answer to one of our ultracode requests. On a rejection the mode was never applied,
+ * so roll our state back (and persist the rollback) instead of showing a selector that lies.
+ * Returns true when the response was ours to handle.
+ */
+function handleUltracodeResponse(id: string, e: Entry, requestId: string, error?: string): boolean {
+  const asked = e.ultracodeReqs.get(requestId)
+  if (asked === undefined) return false
+  e.ultracodeReqs.delete(requestId)
+  if (!error) return true
+  // Only roll back if nothing else has changed the mode since we asked.
+  if (e.opts && e.opts.ultracode === asked) {
+    e.opts = { ...e.opts, ultracode: !asked }
+    paramsSink(id, { ultracode: !asked })
+    emit(id, e, { type: 'meta', commands: e.commands, modelState: modelState(e) })
+  }
+  info(id, e, `Ультракод недоступний у цій сесії: ${error}`)
+  return true
+}
+
+/**
+ * Re-assert ultracode after the handshake. The CLI's flag layer lives only for the life of the
+ * process, so a persisted choice would silently vanish on every restart/resume without this.
+ */
+function enforceUltracode(e: Entry): void {
+  if (e.proc && e.opts?.ultracode !== undefined) requestUltracode(e, e.opts.ultracode)
 }
 
 function imageBlock(a: ChatAttachment): unknown | null {
@@ -426,7 +565,10 @@ export function handleLine(id: string, e: Entry, line: string): void {
         }
         e.sessionId = msg.session_id
         sessionIdSink(id, msg.session_id)
-      }
+      } else if (msg.subtype === 'task_started') handleTaskStarted(id, e, msg)
+      else if (msg.subtype === 'task_progress') handleTaskProgress(id, e, msg)
+      else if (msg.subtype === 'task_updated') handleTaskUpdated(id, e, msg)
+      else if (msg.subtype === 'task_notification') handleTaskDone(id, e, msg)
       break
     case 'stream_event': {
       if (msg.parent_tool_use_id) break // subagent text: not shown
@@ -471,6 +613,8 @@ export function handleLine(id: string, e: Entry, line: string): void {
       if (resp.request_id && resp.request_id === e.initRequestId) {
         e.initRequestId = undefined
         if (resp.subtype === 'success') handleInitialize(id, e, resp.response ?? {})
+      } else if (resp.request_id && handleUltracodeResponse(id, e, resp.request_id, resp.subtype === 'error' && resp.error ? resp.error : undefined)) {
+        // an ultracode apply — a refusal rolls the level back with its own notice
       } else if (resp.subtype === 'error' && resp.error) info(id, e, `Помилка: ${resp.error}`)
       break
     }
@@ -479,7 +623,9 @@ export function handleLine(id: string, e: Entry, line: string): void {
       if (msg.is_error && typeof msg.result === 'string' && msg.result) info(id, e, msg.result)
       else if (!e.turnHadText && typeof msg.result === 'string' && msg.result.trim())
         pushItem(id, e, { id: randomUUID(), role: 'assistant', text: msg.result, ts: Date.now() })
-      setBusy(id, e, false)
+      // The main turn ends while a workflow is still running in the background; the CLI starts a
+      // turn of its own to report it, so keep the session busy across that gap.
+      if (!e.runningTasks.size) setBusy(id, e, false)
       saveNow(id, e)
       break
     }
@@ -511,6 +657,8 @@ function handleInitialize(id: string, e: Entry, r: Record<string, unknown>): voi
       })
   }
   emit(id, e, { type: 'meta', commands: e.commands, modelState: modelState(e) })
+  // Ultracode lives in the CLI's session-scoped flag layer, which a (re)spawn starts empty.
+  enforceUltracode(e)
 }
 
 function appendLive(id: string, e: Entry, text: string): void {
@@ -549,6 +697,9 @@ function handleToolResults(id: string, e: Entry, msg: Record<string, unknown>): 
   const blocks = Array.isArray(message.content) ? message.content : []
   for (const b of blocks) {
     if (b.type !== 'tool_result' || !b.tool_use_id) continue
+    // A workflow's call is answered the moment it is launched, not when it is done — leave its
+    // row running; the real result lands in handleTaskDone.
+    if (e.runningTasks.has(b.tool_use_id)) continue
     const item = e.items.find((it) => it.id === b.tool_use_id)
     if (!item) continue
     item.done = true
@@ -589,6 +740,11 @@ export function summarizeToolUse(name: string, input: unknown, max = 300): strin
   let s: string
   if (name === 'Bash' && typeof inp.command === 'string') s = inp.command
   else if ((name === 'Read' || name === 'Edit' || name === 'Write') && typeof inp.file_path === 'string') s = inp.file_path
+  else if (name === 'Workflow') {
+    // Ultracode launches multi-agent workflows: name the run from the script's meta, not its source.
+    const meta = workflowMeta(typeof inp.script === 'string' ? inp.script : '')
+    s = [(typeof inp.name === 'string' && inp.name) || meta.name, meta.description].filter(Boolean).join(' — ') || 'воркфлов'
+  }
   else if (name.startsWith('mcp__')) {
     const short = name.split('__').slice(2).join('.')
     const args = Object.entries(inp).map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ')
@@ -596,6 +752,221 @@ export function summarizeToolUse(name: string, input: unknown, max = 300): strin
   } else s = JSON.stringify(inp)
   s = s.replace(/\s+/g, ' ').trim()
   return s.length > max ? s.slice(0, max - 1) + '…' : s
+}
+
+/**
+ * Pull `name` / `description` out of a workflow script's `export const meta = {…}` literal. The
+ * Workflow tool requires that block to be a pure literal at the top of the script, so a plain scan
+ * of the first lines is enough. Authoritative values arrive later on the task_started event.
+ */
+function workflowMeta(script: string): { name?: string; description?: string } {
+  if (!script) return {}
+  const head = script.slice(0, 2000)
+  const grab = (key: string): string | undefined => head.match(new RegExp(`\\b${key}\\s*:\\s*(['"\`])([^'"\`]*)\\1`))?.[2] || undefined
+  return { name: grab('name'), description: grab('description') }
+}
+
+// ---------------------------------------------------------------- multi-agent workflows
+//
+// The Workflow tool launches ONE background task that runs a script spawning many subagents. The
+// CLI answers the tool call immediately ("Workflow launched in background") and then streams the
+// run's state on system/task_progress: `workflow_progress` is a full snapshot of the plan
+// (workflow_phase rows) and every agent (workflow_agent rows), re-sent whenever something changes —
+// an event may omit it entirely (a heartbeat), in which case the last known snapshot stands.
+// `task_updated` flips the status, `task_notification` closes the run with its summary.
+
+/** Truncation cap for the prompt/result previews kept per agent (they are persisted). */
+const WF_PREVIEW = 600
+
+/** A background task was launched: hold its tool row open until the task itself reports back. */
+function handleTaskStarted(id: string, e: Entry, msg: Record<string, unknown>): void {
+  const toolUseId = typeof msg.tool_use_id === 'string' ? msg.tool_use_id : ''
+  if (!toolUseId) return
+  const item = e.items.find((it) => it.id === toolUseId)
+  if (!item) return
+  e.runningTasks.add(toolUseId)
+  // Only workflows carry a plan; a plain background agent just keeps spinning until its notification.
+  if (msg.task_type !== 'local_workflow') return
+  const taskId = typeof msg.task_id === 'string' ? msg.task_id : ''
+  const meta = workflowMeta(typeof msg.prompt === 'string' ? msg.prompt : '')
+  item.workflow = {
+    taskId,
+    name: (typeof msg.workflow_name === 'string' && msg.workflow_name) || meta.name || 'workflow',
+    description: (typeof msg.description === 'string' && msg.description) || meta.description || '',
+    status: 'running',
+    phases: [],
+    agents: [],
+    totalTokens: 0,
+    toolUses: 0,
+    durationMs: 0,
+    startTs: item.ts
+  }
+  if (taskId) e.workflowItems.set(taskId, toolUseId)
+  emit(id, e, { type: 'update', item })
+}
+
+/** The Workflow tool item a task event belongs to (by task id or tool_use id). */
+function workflowItem(e: Entry, msg: Record<string, unknown>): ChatItem | undefined {
+  const taskId = typeof msg.task_id === 'string' ? msg.task_id : ''
+  const toolUseId = typeof msg.tool_use_id === 'string' ? msg.tool_use_id : ''
+  const itemId = (taskId && e.workflowItems.get(taskId)) || toolUseId
+  const item = itemId ? e.items.find((it) => it.id === itemId) : undefined
+  return item?.workflow ? item : undefined
+}
+
+/** Live progress: a workflow's carries the whole plan + agent state, a plain task's just a line. */
+function handleTaskProgress(id: string, e: Entry, msg: Record<string, unknown>): void {
+  const desc = typeof msg.description === 'string' ? msg.description : ''
+  const item = workflowItem(e, msg)
+  if (item?.workflow) {
+    updateWorkflowRun(item.workflow, msg, desc)
+    emit(id, e, { type: 'update', item })
+    return
+  }
+  const toolUseId = typeof msg.tool_use_id === 'string' ? msg.tool_use_id : ''
+  if (!toolUseId || !desc || !e.runningTasks.has(toolUseId)) return
+  const plain = e.items.find((it) => it.id === toolUseId)
+  if (!plain || plain.done) return
+  plain.text = desc
+  emit(id, e, { type: 'update', item: plain })
+}
+
+/** Fold one task_progress/notification event into a run (usage always, the plan when sent). */
+function updateWorkflowRun(run: WorkflowRun, msg: Record<string, unknown>, desc: string): void {
+  const usage = (msg.usage ?? {}) as Record<string, unknown>
+  if (typeof usage.total_tokens === 'number') run.totalTokens = usage.total_tokens
+  if (typeof usage.tool_uses === 'number') run.toolUses = usage.tool_uses
+  if (typeof usage.duration_ms === 'number') run.durationMs = usage.duration_ms
+  if (desc) run.current = desc
+  if (!Array.isArray(msg.workflow_progress)) return // a heartbeat: keep the snapshot we have
+  const { phases, agents } = parseWorkflowProgress(msg.workflow_progress)
+  if (phases.length) run.phases = phases
+  if (agents.length) run.agents = agents
+}
+
+/** Split a `workflow_progress` snapshot into its phase and agent rows (sorted by index). */
+export function parseWorkflowProgress(raw: unknown[]): { phases: WorkflowPhase[]; agents: WorkflowAgent[] } {
+  const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
+  const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+  const cut = (v: string | undefined): string | undefined => (v && v.length > WF_PREVIEW ? v.slice(0, WF_PREVIEW - 1) + '…' : v)
+  const state = (v: unknown): WorkflowAgentState => (v === 'done' || v === 'error' || v === 'progress' ? v : 'start')
+  const phases: WorkflowPhase[] = []
+  const agents: WorkflowAgent[] = []
+  for (const r of raw) {
+    if (!r || typeof r !== 'object') continue
+    const row = r as Record<string, unknown>
+    const index = num(row.index)
+    if (index === undefined) continue
+    if (row.type === 'workflow_phase') phases.push({ index, title: str(row.title) ?? `Фаза ${index}`, ...(str(row.kind) ? { kind: str(row.kind) } : {}) })
+    else if (row.type === 'workflow_agent')
+      agents.push({
+        index,
+        label: str(row.label) ?? `агент ${index}`,
+        state: state(row.state),
+        phaseIndex: num(row.phaseIndex),
+        phaseTitle: str(row.phaseTitle),
+        agentId: str(row.agentId),
+        agentType: str(row.agentType),
+        model: str(row.model),
+        queuedAt: num(row.queuedAt),
+        startedAt: num(row.startedAt),
+        lastProgressAt: num(row.lastProgressAt),
+        attempt: num(row.attempt),
+        lastToolName: str(row.lastToolName),
+        lastToolSummary: cut(str(row.lastToolSummary)),
+        promptPreview: cut(str(row.promptPreview)),
+        resultPreview: cut(str(row.resultPreview)),
+        error: cut(str(row.error)),
+        isolation: str(row.isolation),
+        ...(row.blocked === true ? { blocked: true } : {}),
+        ...(row.cached === true ? { cached: true } : {}),
+        tokens: num(row.tokens),
+        toolCalls: num(row.toolCalls),
+        durationMs: num(row.durationMs)
+      })
+  }
+  phases.sort((a, b) => a.index - b.index)
+  agents.sort((a, b) => a.index - b.index)
+  return { phases, agents }
+}
+
+/** The CLI's task status, narrowed to the run statuses we render. */
+function taskStatus(v: unknown): WorkflowStatus {
+  return v === 'completed' || v === 'failed' || v === 'killed' ? v : 'failed'
+}
+
+/** Close a run out (task finished, stopped, or the session died). A late summary still lands. */
+function finishWorkflowRun(run: WorkflowRun, status: WorkflowStatus, summary?: string): void {
+  if (summary) run.summary = summary
+  if (run.status !== 'running') return
+  run.status = status
+  run.endTs = Date.now()
+  // Anything still marked running can never report again — show it as stopped, not spinning forever.
+  if (status !== 'completed') for (const a of run.agents) if (a.state === 'start' || a.state === 'progress') a.state = 'error'
+}
+
+/** `task_updated` carries a status patch (a run stopped by the user reaches us as `killed` here first). */
+function handleTaskUpdated(id: string, e: Entry, msg: Record<string, unknown>): void {
+  const item = workflowItem(e, msg)
+  const patch = (msg.patch ?? {}) as Record<string, unknown>
+  if (!item?.workflow || typeof patch.status !== 'string' || patch.status === 'running') return
+  finishWorkflowRun(item.workflow, taskStatus(patch.status))
+  emit(id, e, { type: 'update', item })
+}
+
+/** A background task finished: close its row with the summary it reported (the real end of the call). */
+function handleTaskDone(id: string, e: Entry, msg: Record<string, unknown>): void {
+  const toolUseId = typeof msg.tool_use_id === 'string' ? msg.tool_use_id : ''
+  const taskId = typeof msg.task_id === 'string' ? msg.task_id : ''
+  const summary = typeof msg.summary === 'string' ? msg.summary.trim() : ''
+  const wfItem = workflowItem(e, msg)
+  if (wfItem?.workflow) {
+    // The final usage lands here too (the last progress event can be throttled away).
+    updateWorkflowRun(wfItem.workflow, msg, '')
+    finishWorkflowRun(wfItem.workflow, taskStatus(msg.status), summary)
+    if (taskId) e.workflowItems.delete(taskId)
+  }
+  const item = wfItem ?? (toolUseId ? e.items.find((it) => it.id === toolUseId) : undefined)
+  if (toolUseId) e.runningTasks.delete(toolUseId)
+  if (!item) return
+  if (!item.done) {
+    item.done = true
+    item.isError = msg.status !== 'completed'
+    item.endTs = Date.now()
+    if (summary) item.output = summary
+  }
+  emit(id, e, { type: 'update', item })
+}
+
+/** The process is gone (exit/kill/interrupt): nothing still running can ever report again. */
+function closeRunningTasks(id: string, e: Entry, status: WorkflowStatus): void {
+  for (const toolUseId of e.runningTasks) {
+    const item = e.items.find((it) => it.id === toolUseId)
+    if (!item) continue
+    if (item.workflow) finishWorkflowRun(item.workflow, status)
+    if (!item.done) {
+      item.done = true
+      item.isError = true
+      item.endTs = Date.now()
+      item.output = item.workflow ? 'Воркфлов перервано.' : 'Фонову задачу перервано.'
+    }
+    emit(id, e, { type: 'update', item })
+  }
+  e.runningTasks.clear()
+  e.workflowItems.clear()
+}
+
+/**
+ * Stop a running workflow (the panel's «Зупинити воркфлов» button) via the CLI's own stop_task
+ * control request — the same thing the TUI's `x stop workflow` does.
+ */
+export function stopChatWorkflow(id: string, taskId: string): void {
+  const e = entries.get(id)
+  if (!e?.proc || !taskId) return
+  const itemId = e.workflowItems.get(taskId)
+  const item = itemId ? e.items.find((it) => it.id === itemId) : undefined
+  writeLine(e, { type: 'control_request', request_id: randomUUID(), request: { subtype: 'stop_task', task_id: taskId } })
+  info(id, e, `Зупиняю воркфлов «${item?.workflow?.name ?? taskId}»…`)
 }
 
 /** Test hook: create/inspect an entry without a process. */

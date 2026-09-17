@@ -79,13 +79,37 @@ when sources are newer (tested in `tests/scripts/launch.test.ts`).
   - `store.ts` `<userData>/config.json` (rules config **and** projects, settings, claude args, tool paths);
     migrates from the old `pcb-rules-library` config once.
   - `rulesRepo.ts` bundled `rules/` + user rules dir, watched; `api.ts` local HTTP API (`handle()` is testable without a socket).
-  - `claudeChat.ts` — port of conductor-linux's chat (no subagents/workflows): spawns
+  - `claudeChat.ts` — port of conductor-linux's chat (no subagent transcripts / local commands): spawns
     `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio [--resume] --mcp-config <file> <claudeArgs>`
     through the login shell (no app-side system prompt: board-work instructions come from the `kicad-pcb-layout` Claude config, skill `pcb-layout-fix`, enabled per project via ⚙ in the composer), parses NDJSON (`handleLine`), keeps a `ChatItem[]` transcript per session tab
     (persisted in `<userData>/chats/<sessionId>.json`; a migrated project's first session reuses the project id), turns `can_use_tool` control requests into
     `ChatPending` (permission / AskUserQuestion), streams sequenced `chat:event`s to the renderer. The
     `initialize` handshake supplies slash commands and models (`meta` event); `/model` and effort are
     picked in the composer and applied by restarting the session with `--model/--effort` (persisted on the `ChatSession`).
+    **Ultracode is the last *effort level*, not a mode of its own — and not the strongest one** (ported from
+    conductor-linux): the CLI runs it at **xhigh** plus standing multi-agent orchestration (Claude reaches for the
+    Workflow tool), so `max` is a higher raw level; never word it as "maximum effort". `modelState()` appends
+    `ultracode` to every model's `supportedEffortLevels` and reports `effort: 'ultracode'` while it is on, so one
+    selector shows one selection (⚡ styling via `ChatModelState.ultracode`). The mechanism underneath differs, which
+    `setChatParams` reconciles: ultracode is a **live flag** (`apply_flag_settings {settings:{ultracode}}` control
+    request, no restart) while an ordinary level is the `--effort` CLI flag and needs a respawn — so switching away
+    turns the flag off live and restarts only if the stored level also changed. The flag layer is per-process, so the
+    choice is persisted (`ChatSession.claudeUltracode`, `StartOpts.ultracode`) and `enforceUltracode` re-asserts it
+    right after the handshake. The CLI refuses ultracode when dynamic workflows are off or the model/org disallows
+    xhigh: `Entry.ultracodeReqs` remembers each request id and `handleUltracodeResponse` rolls the selection back on
+    an error response.
+    **Multi-agent workflows** (what ultracode launches; ported from conductor-linux): the Workflow tool is ONE
+    background task (`system/task_started` with `task_type: 'local_workflow'` is the whole detection rule). Its
+    tool_use id goes into `Entry.runningTasks`, so the immediate "launched" tool_result does not close the row;
+    `task_progress` events carry a `workflow_progress` snapshot (phase + agent rows) folded onto the item as
+    `ChatItem.workflow` (`WorkflowRun`, persisted with the transcript; a run still `running` on load is frozen as
+    `killed`), `task_updated` flips the status, `task_notification` closes the run with its summary. The main turn's
+    `result` keeps the session busy while a task runs (the CLI starts its own turn to report). Renderer:
+    `WorkflowView.tsx` — `WorkflowRow` is the clickable status line in the transcript (name, current step, agents
+    done, elapsed, tokens), `WorkflowPanel` the modal it opens (plan on the left, live agents on the right, «Зупинити
+    воркфлов» → `stopChatWorkflow` → the CLI's `stop_task`); the open panel id lives in `ChatView`. Subagent text
+    (`parent_tool_use_id`) still stays out of the transcript. `tests/fixtures/ultracode-workflow.ndjson` is a real CLI
+    recording driven end to end in `tests/renderer/WorkflowView.test.tsx`.
     Attachments: files go as `Файл: <path>` lines, images as base64 image blocks.
   - `projects.ts` — add/remove projects, MCP config file per project (`<userData>/mcp/<id>.json`),
     session tabs (`createChatSession`/`closeChatSession`/`renameChatSession`, pure helpers in `src/shared/projects.ts`,
@@ -109,7 +133,8 @@ when sources are newer (tested in `tests/scripts/launch.test.ts`).
   `check:progress`; the result (`MultiCheckResult`) lands in `store.checkResult` and `CheckReportModal` shows one tab per
   board, «Вставити файл у чат» staging that board's `pcb_report[-<board>].md` (stem from `reportStemFor`) as a composer
   attachment of the visible session (not sent). The checker CLI grew `--board`, `--stem` and a `docs` subcommand for this.
-  The left sidebar's project row expands into its board list (open-in-KiCad per board, last counts).
+  The left sidebar's project row is a plain card styled like conductor-linux's workspace row (active = green line on
+  the left edge, name + busy dot on top, last check counts underneath); boards are picked in `CheckBoardsModal` only.
 - `rules/*.json` — one file per rule (schema in `schema/rule.schema.json`); the `examples.bad/good` scenes are the diagrams.
 
 ## Python side (kicad-ai-layout)

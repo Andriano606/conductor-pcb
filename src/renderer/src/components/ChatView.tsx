@@ -8,6 +8,7 @@ import { useStore } from '../store'
 import { Dropdown } from './Dropdown'
 import { PromptLibraryModal } from './PromptLibraryModal'
 import { ClaudeProfilesModal } from './ClaudeProfilesModal'
+import { WorkflowPanel, WorkflowRow } from './WorkflowView'
 import { promptVarValues, substitutePromptVars } from '@shared/promptVars'
 
 const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }
@@ -42,6 +43,9 @@ export function ChatView({ project, session }: { project: PcbProject; session: C
   const [dragOver, setDragOver] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [profilesOpen, setProfilesOpen] = useState(false)
+  // The open multi-agent panel, by the id of its Workflow row (owned here, not by the row, so it
+  // outlives the transcript re-rendering while the run keeps appending items).
+  const [workflowItemId, setWorkflowItemId] = useState<string | null>(null)
   const customPrompts = useStore((s) => s.customPrompts)
   const claudeProfiles = useStore((s) => s.claudeProfiles)
   const setProjectProfiles = useStore((s) => s.setProjectProfiles)
@@ -273,7 +277,7 @@ export function ChatView({ project, session }: { project: PcbProject; session: C
           )}
           {items.map((it) => (
             <div className="chat-row" key={it.id}>
-              <ItemView item={it} />
+              <ItemView item={it} onOpenWorkflow={setWorkflowItemId} />
             </div>
           ))}
           {busy && (
@@ -353,9 +357,19 @@ export function ChatView({ project, session }: { project: PcbProject; session: C
                     }))} />
                 )}
                 {effortLevels.length > 0 && (
-                  <Dropdown triggerClass="chat-modelbtn" triggerTitle={busy ? 'Зміна зусиль перезапускає сесію — зачекайте завершення відповіді' : 'Рівень зусиль (thinking)'}
-                    triggerContent={modelState?.effort ?? 'зусилля'} direction="up" disabled={busy}
-                    items={effortLevels.map((lvl) => ({ key: lvl, label: lvl, checked: lvl === modelState?.effort, onClick: () => void window.api.setChatEffort(id, lvl) }))} />
+                  // Ultracode is the last level in this list, not a toggle of its own — the CLI
+                  // treats it as an effort level, and every other level turns it off.
+                  <Dropdown triggerClass={`chat-modelbtn${modelState?.ultracode ? ' ultra on' : ''}`}
+                    triggerTitle={busy ? 'Зміна зусиль перезапускає сесію — зачекайте завершення відповіді' : modelState?.ultracode ? 'Ультракод: xhigh + Claude сам запускає мультиагентні воркфлови' : 'Рівень зусиль (thinking)'}
+                    triggerContent={modelState?.ultracode ? '⚡ ultracode' : (modelState?.effort ?? 'зусилля')} direction="up" disabled={busy}
+                    items={effortLevels.map((lvl) => ({
+                      key: lvl,
+                      label: lvl === 'ultracode'
+                        ? (<span className="model-item"><span className="model-item-name">⚡ ultracode</span><span className="model-item-desc">xhigh (не max) + мультиагентні воркфлови</span></span>)
+                        : lvl,
+                      checked: lvl === modelState?.effort,
+                      onClick: () => void window.api.setChatEffort(id, lvl)
+                    }))} />
                 )}
               </div>
               <div className="chat-tools-right">
@@ -375,6 +389,7 @@ export function ChatView({ project, session }: { project: PcbProject; session: C
       </div>
       {libraryOpen && <PromptLibraryModal project={project} onClose={() => setLibraryOpen(false)} onInsert={(t) => { insertPrompt(t); setLibraryOpen(false) }} />}
       {profilesOpen && <ClaudeProfilesModal project={project} onClose={() => setProfilesOpen(false)} />}
+      {workflowItemId && <WorkflowPanel sessionId={id} itemId={workflowItemId} onClose={() => setWorkflowItemId(null)} />}
     </div>
   )
 }
@@ -441,8 +456,11 @@ function StartNoticeView({ fields }: { fields: { key: string; value: string }[] 
   )
 }
 
-function ItemView({ item }: { item: ChatItem }): JSX.Element {
+function ItemView({ item, onOpenWorkflow }: { item: ChatItem; onOpenWorkflow?: (itemId: string) => void }): JSX.Element {
   const [open, setOpen] = useState(false)
+  // The Workflow tool's own row is the multi-agent status line: name, progress and a click that
+  // opens the plan/agents panel.
+  if (item.role === 'tool' && item.workflow) return <WorkflowRow item={item} onOpen={() => onOpenWorkflow?.(item.id)} />
   if (item.role === 'tool') {
     const dur = item.endTs ? `${((item.endTs - item.ts) / 1000).toFixed(1)} с` : ''
     return (
