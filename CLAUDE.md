@@ -133,6 +133,9 @@ when sources are newer (tested in `tests/scripts/launch.test.ts`).
     the project (`PcbProject.newSessionProfileIds`); the old per-project `claudeConfigProfileIds` is copied into
     every tab once on load (`migrateSessionProfiles`), and its shared dir `claude-configs/<projectId>` stays a
     transcript source. Closing a tab deletes its merged dir.
+  - `navigation.ts` — the app has no in-app browser: `navigationVerdict` makes `will-navigate` / `setWindowOpenHandler` (index.ts)
+    cancel every navigation away from the app's own page and hand http(s)/mailto links to the system browser, so a markdown
+    link clicked in the chat never replaces the app with the site.
   - `usagePoller.ts` — runs `claude -p --output-format json "/usage"` every 30 s, parses the windows, persists
     them in `AppConfig.lastUsage`, pushes `claude:usage`; the sidebar's bottom-left `UsageMeters` renders them.
   - Prompt library: `AppConfig.customPrompts`, `$PCB_PROJECT_NAME/$PCB_PROJECT_DIR/$PCB_BOARD_FILE` variables

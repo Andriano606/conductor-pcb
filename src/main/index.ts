@@ -9,6 +9,7 @@ import { killAllChats, onChatBusy, onChatEvent, onChatParams, onChatSessionId, s
 import { patchSession, pinUnpinnedProjects } from './projects'
 import { onUsage, startUsagePolling, stopUsagePolling } from './usagePoller'
 import { startCredentialsSync } from './credentialsSync'
+import { navigationVerdict } from './navigation'
 import { setConfig } from './store'
 
 function createWindow(): BrowserWindow {
@@ -33,8 +34,15 @@ function createWindow(): BrowserWindow {
     if (level >= 2) console.log(`[renderer] ${message} (${source.split('/').pop()}:${line})`)
   })
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    if (navigationVerdict(url, win.webContents.getURL()) === 'external') void shell.openExternal(url)
     return { action: 'deny' }
+  })
+  // A clicked markdown link must never replace the app with the site (there is no in-app browser), see navigation.ts.
+  win.webContents.on('will-navigate', (e, url) => {
+    const verdict = navigationVerdict(url, win.webContents.getURL())
+    if (verdict === 'allow') return
+    e.preventDefault()
+    if (verdict === 'external') void shell.openExternal(url)
   })
   if (process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL)
