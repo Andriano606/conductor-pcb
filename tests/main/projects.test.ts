@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, utimesSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -13,29 +13,46 @@ describe('transcript carry-over between config dirs', () => {
   })
   it('copies the session jsonl into the target config dir once', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'carry-'))
-    const p = { id: 'p', name: 'b', dir: '/x/board', proFile: '', boardFile: '', createdAt: 0, sessions: [{ id: 'p', createdAt: 0, claudeSessionId: 'sid' }] }
     const from = join(tmp, 'global')
     mkdirSync(join(from, 'projects', '-x-board'), { recursive: true })
     writeFileSync(join(from, 'projects', '-x-board', 'sid.jsonl'), 'conv')
     const to = join(tmp, 'merged')
-    expect(carryResumeTranscript(p, to, ['', from])).toBe(true)
+    expect(carryResumeTranscript('/x/board', 'sid', to, ['', from])).toBe(true)
     expect(readFileSync(join(to, 'projects', '-x-board', 'sid.jsonl'), 'utf8')).toBe('conv')
-    expect(carryResumeTranscript(p, to, [])).toBe(true) // already there
-    expect(carryResumeTranscript({ ...p, sessions: [{ id: 'p', createdAt: 0, claudeSessionId: 'other' }] }, to, [from])).toBe(false)
+    expect(carryResumeTranscript('/x/board', 'sid', to, [])).toBe(true) // already there
+    expect(carryResumeTranscript('/x/board', 'other', to, [from])).toBe(false)
     expect(existsSync(join(to, 'projects', '-x-board', 'other.jsonl'))).toBe(false)
-    expect(carryResumeTranscript({ ...p, sessions: [{ id: 'p', createdAt: 0 }] }, to, [from])).toBe(false) // nothing to carry
+    expect(carryResumeTranscript('/x/board', undefined, to, [from])).toBe(false) // nothing to carry
   })
-  it('carries every session tab of the project', () => {
+  it('carries one tab only: the other tabs of the project stay where they are', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'carry-'))
     const from = join(tmp, 'global')
     mkdirSync(join(from, 'projects', '-x-board'), { recursive: true })
     writeFileSync(join(from, 'projects', '-x-board', 'a.jsonl'), 'A')
     writeFileSync(join(from, 'projects', '-x-board', 'b.jsonl'), 'B')
-    const p = { id: 'p', name: 'b', dir: '/x/board', proFile: '', boardFile: '', createdAt: 0, sessions: [{ id: 'p', createdAt: 0, claudeSessionId: 'a' }, { id: 's2', createdAt: 0, claudeSessionId: 'b' }] }
     const to = join(tmp, 'merged')
-    expect(carryResumeTranscript(p, to, [from])).toBe(true)
+    expect(carryResumeTranscript('/x/board', 'a', to, [from])).toBe(true)
     expect(readFileSync(join(to, 'projects', '-x-board', 'a.jsonl'), 'utf8')).toBe('A')
-    expect(readFileSync(join(to, 'projects', '-x-board', 'b.jsonl'), 'utf8')).toBe('B')
+    expect(existsSync(join(to, 'projects', '-x-board', 'b.jsonl'))).toBe(false)
+  })
+  it('a newer copy elsewhere replaces the stale one (profiles toggled off and on again)', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'carry-'))
+    const globalDir = join(tmp, 'global')
+    const merged = join(tmp, 'merged')
+    for (const d of [globalDir, merged]) mkdirSync(join(d, 'projects', '-x-board'), { recursive: true })
+    const stale = join(globalDir, 'projects', '-x-board', 'sid.jsonl')
+    const fresh = join(merged, 'projects', '-x-board', 'sid.jsonl')
+    writeFileSync(stale, 'old')
+    writeFileSync(fresh, 'old+new')
+    utimesSync(stale, new Date(1000), new Date(1000))
+    utimesSync(fresh, new Date(5000), new Date(5000))
+    expect(carryResumeTranscript('/x/board', 'sid', globalDir, [merged])).toBe(true)
+    expect(readFileSync(stale, 'utf8')).toBe('old+new')
+    // and an older candidate never overwrites the newer target
+    writeFileSync(fresh, 'older')
+    utimesSync(fresh, new Date(1000), new Date(1000))
+    expect(carryResumeTranscript('/x/board', 'sid', globalDir, [merged])).toBe(true)
+    expect(readFileSync(stale, 'utf8')).toBe('old+new')
   })
 })
 

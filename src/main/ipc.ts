@@ -7,7 +7,7 @@ import { addClaudeProfile, addCustomPrompt, getConfig, getConfigPath, removeClau
 import { deleteUserRule, getRules, reloadRules, saveUserRule, snapshot, startWatching } from './rulesRepo'
 import { apiStatus, getLastReport, setLastReport, startApi } from './api'
 import type { ChatAnswer, PcbProject } from '../shared/types'
-import { addProjectFromDir, closeChatSession, createChatSession, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, renameChatSession, applyGlobalRulesToProject, listKernels, refreshBoards, runChecks, setProjectProfiles, setProjectRuleOverride, startSessionChat, updateProject } from './projects'
+import { addProjectFromDir, closeChatSession, createChatSession, deleteProject, getProject, kicadStatus, openInKicad, rebuildAllConfigs, renameChatSession, applyGlobalRulesToProject, listKernels, refreshBoards, runChecks, setSessionProfiles, setProjectRuleOverride, startSessionChat, updateProject } from './projects'
 import { isClaudeConfigDir } from './configMerge'
 import { pollUsage, refreshUsageSoon } from './usagePoller'
 import { answerChat, attachChat, interruptChat, sendChatMessage, setChatParams, stopChatWorkflow } from './claudeChat'
@@ -138,7 +138,7 @@ export function registerIpc(win: BrowserWindow): void {
     return session
   })
   ipcMain.handle('session:close', (_e, sessionId: string) => {
-    const ok = closeChatSession(sessionId)
+    const ok = closeChatSession(sessionId, app.getPath('userData'))
     projectsChanged()
     return ok
   })
@@ -157,7 +157,7 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle('profiles:update', (_e, profile: ClaudeProfile) => updateClaudeProfile(profile))
   ipcMain.handle('profiles:remove', (_e, id: string) => removeClaudeProfile(id))
   ipcMain.handle('profiles:isConfigDir', (_e, dir: string) => isClaudeConfigDir(dir))
-  ipcMain.handle('profiles:setForProject', (_e, projectId: string, ids: string[]) => setProjectProfiles(projectId, ids, app.getPath('userData')))
+  ipcMain.handle('profiles:setForSession', (_e, sessionId: string, ids: string[]) => setSessionProfiles(sessionId, ids, app.getPath('userData')))
   ipcMain.handle('profiles:rebuild', () => rebuildAllConfigs(app.getPath('userData')))
   // ---- usage
   ipcMain.handle('usage:get', () => getConfig().lastUsage)

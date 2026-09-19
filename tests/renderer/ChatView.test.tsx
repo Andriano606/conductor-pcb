@@ -148,6 +148,27 @@ describe('ChatView', () => {
     apply({ id: 'p9', seq: 5, ev: { type: 'busy', busy: true } })
     expect(api.attachChat).toHaveBeenCalledWith('p9')
   })
+  // Skill sets (Claude config profiles) are a per-tab knob like the model and the effort: the ⚙ menu
+  // shows the set of the visible tab and applies a change to that tab alone.
+  it('the ⚙ menu shows and changes the profiles of this session tab only', async () => {
+    const tab2 = { id: 's2', createdAt: 2, claudeConfigProfileIds: ['b'] }
+    const proj: PcbProject = { ...project, sessions: [{ ...session, claudeConfigProfileIds: ['a'] }, tab2] }
+    const profile = (id: string): { id: string; name: string; path: string; env: never[]; createdAt: number; updatedAt: number } => ({ id, name: `cfg-${id}`, path: `/c/${id}`, env: [], createdAt: 0, updatedAt: 0 })
+    api.setSessionProfiles = vi.fn().mockResolvedValue(true)
+    api.listProjects = vi.fn().mockResolvedValue([proj])
+    useStore.setState({ claudeProfiles: [profile('a'), profile('b')] })
+    const { unmount } = render(<ChatView project={proj} session={tab2} />)
+    const gear = await screen.findByTitle(/Конфігурація Claude .* для цієї сесії/)
+    fireEvent.click(gear)
+    const checked = (): string[] => screen.getAllByRole('menuitemradio').filter((el) => el.getAttribute('aria-checked') === 'true').map((el) => el.textContent ?? '')
+    expect(checked()).toEqual(['cfg-b'])
+    fireEvent.click(screen.getByText('cfg-a'))
+    expect(api.setSessionProfiles).not.toHaveBeenCalled() // staged until the menu closes
+    fireEvent.click(gear)
+    expect(api.setSessionProfiles).toHaveBeenCalledTimes(1)
+    expect(api.setSessionProfiles).toHaveBeenCalledWith('s2', ['b', 'a'])
+    unmount()
+  })
 })
 
 describe('ProjectSidebar', () => {

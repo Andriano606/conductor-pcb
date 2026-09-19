@@ -1,8 +1,8 @@
-import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatAttachment, ChatItem, ChatPending, ChatQuestion, ChatSession, PcbProject } from '@shared/types'
-import { projectBusy, useChatStore } from '../chatStore'
+import { useChatStore } from '../chatStore'
 import { SessionTabs } from './SessionTabs'
 import { useStore } from '../store'
 import { Dropdown } from './Dropdown'
@@ -14,12 +14,20 @@ import { promptVarValues, substitutePromptVars } from '@shared/promptVars'
 const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }
 const MAX_INPUT_HEIGHT = 320
 
+/**
+ * Last transcript scroll position per session id, kept in module scope so it survives the ChatView
+ * remount on every session-tab switch (`key={session.id}`). `atBottom` records whether the user was
+ * pinned to the newest message when they left: a raw scrollTop restored after Claude appended more would
+ * strand them above the new content, so a session left pinned re-pins instead (ported from conductor-linux).
+ */
+type SavedScroll = { scrollTop: number; atBottom: boolean }
+const scrollStateById = new Map<string, SavedScroll>()
+
 /** The chat of one session tab (`session`) of `project`; the session id is the chat key. */
 export function ChatView({ project, session }: { project: PcbProject; session: ChatSession }): JSX.Element {
   const id = session.id
   const pid = project.id
   const chat = useChatStore((s) => s.chats[id])
-  const anyBusy = useChatStore((s) => projectBusy(s.chats, project))
   const attach = useChatStore((s) => s.attach)
   const draft = useChatStore((s) => s.drafts[id] ?? '')
   const setDraftStore = useChatStore((s) => s.setDraft)
@@ -48,19 +56,19 @@ export function ChatView({ project, session }: { project: PcbProject; session: C
   const [workflowItemId, setWorkflowItemId] = useState<string | null>(null)
   const customPrompts = useStore((s) => s.customPrompts)
   const claudeProfiles = useStore((s) => s.claudeProfiles)
-  const setProjectProfiles = useStore((s) => s.setProjectProfiles)
+  const setSessionProfiles = useStore((s) => s.setSessionProfiles)
   const [stagedProfileIds, setStagedProfileIds] = useState<string[] | null>(null)
-  const currentProfileIds = project.claudeConfigProfileIds ?? []
+  const currentProfileIds = session.claudeConfigProfileIds ?? []
   const shownProfileIds = stagedProfileIds ?? currentProfileIds
   const applyStagedProfiles = (): void => {
     setStagedProfileIds((staged) => {
-      if (staged && [...staged].sort().join(',') !== [...currentProfileIds].sort().join(',')) void setProjectProfiles(pid, staged)
+      if (staged && [...staged].sort().join(',') !== [...currentProfileIds].sort().join(',')) void setSessionProfiles(id, staged)
       return null
     })
   }
-  const stageProfileFlip = (pid: string): void => setStagedProfileIds((staged) => {
+  const stageProfileFlip = (profileId: string): void => setStagedProfileIds((staged) => {
     const cur = staged ?? currentProfileIds
-    return cur.includes(pid) ? cur.filter((x) => x !== pid) : [...cur, pid]
+    return cur.includes(profileId) ? cur.filter((x) => x !== profileId) : [...cur, profileId]
   })
   const setDraft = (t: string): void => setDraftStore(id, t)
   const insertPrompt = (text: string): void => {
@@ -84,10 +92,136 @@ export function ChatView({ project, session }: { project: PcbProject; session: C
   const commands = chat?.commands ?? []
   const modelState = chat?.modelState ?? null
 
+  // ---- auto-follow («примагнічування») of the transcript, ported from conductor-linux.
+  // The pin state lives in atBottomRef, the single source of truth for following Claude's output:
+  //  - it detaches ONLY on an upward move the user actually drove (wheel, drag, touch, scroll key —
+  //    see gestureRef), so they can read back while Claude streams;
+  //  - it re-attaches whenever the view lands on the true bottom.
+  // Every other upward move of scrollTop is layout, not intent (a re-measured row, the browser
+  // clamping on a height change) and is ignored — reading those as "the user scrolled up" is what
+  // used to drop the pin, and re-snapping on every change is what used to yank the user back down.
+  const restoreFrom = useRef(scrollStateById.get(id))
+  const atBottomRef = useRef(!restoreFrom.current || restoreFrom.current.atBottom)
+  // Set on send/answer so the next transcript growth jumps to the bottom even if the user had scrolled up.
+  const stickRef = useRef(false)
+  const lastTopRef = useRef(0)
+  const gestureRef = useRef(false)
+  const gestureTimer = useRef<ReturnType<typeof setTimeout>>()
+  const bottomRaf = useRef<number>()
+  const bottomTimers = useRef<Array<ReturnType<typeof setTimeout>>>([])
+  const contentRo = useRef<ResizeObserver | null>(null)
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>()
+  const markGesture = (): void => {
+    gestureRef.current = true
+    if (gestureTimer.current) clearTimeout(gestureTimer.current)
+    gestureTimer.current = setTimeout(() => {
+      gestureRef.current = false
+    }, 400)
+  }
+  const saveScroll = (): void => {
+    if (saveTimer.current) return
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = undefined
+      const el = listRef.current
+      if (el) scrollStateById.set(id, { scrollTop: el.scrollTop, atBottom: atBottomRef.current })
+    }, 200)
+  }
+  /** Snap to the true bottom, if still pinned; chained rAF/timer top-ups cover growth that lands a frame late. */
+  const pinBottom = useCallback((): void => {
+    if (!atBottomRef.current) return
+    const topUp = (): void => {
+      if (!atBottomRef.current) return
+      const el = listRef.current
+      if (!el) return
+      el.scrollTop = el.scrollHeight
+      lastTopRef.current = el.scrollTop
+    }
+    topUp()
+    if (bottomRaf.current) cancelAnimationFrame(bottomRaf.current)
+    bottomRaf.current = requestAnimationFrame(() => {
+      topUp()
+      bottomRaf.current = requestAnimationFrame(topUp)
+    })
+    for (const t of bottomTimers.current) clearTimeout(t)
+    bottomTimers.current = [setTimeout(topUp, 40), setTimeout(topUp, 120)]
+  }, [])
+  /** Re-arm the pin: submitting anything must reveal what Claude says next, even after a scroll-up. */
+  const followNewOutput = (): void => {
+    stickRef.current = true
+    atBottomRef.current = true
+    pinBottom()
+  }
+  // Snap whenever the transcript changes or the typing footer / pending prompt toggles, while pinned.
+  useEffect(() => {
+    if (stickRef.current) {
+      stickRef.current = false
+      atBottomRef.current = true
+    }
+    pinBottom()
+  }, [items, busy, pending, pinBottom])
+  // Scroller listeners + a ResizeObserver holding the pin against growth no render announces
+  // (late markdown/image layout, an expanding tool row, the composer resizing the viewport).
   useEffect(() => {
     const el = listRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [items.length, items[items.length - 1]?.text.length, busy, pending])
+    if (!el) return
+    const saved = restoreFrom.current
+    if (saved && !saved.atBottom) el.scrollTop = saved.scrollTop
+    else pinBottom()
+    lastTopRef.current = el.scrollTop
+    const onWheel = (e: WheelEvent): void => {
+      markGesture()
+      if (e.deltaY < 0) {
+        stickRef.current = false
+        atBottomRef.current = false
+      }
+    }
+    const onScroll = (): void => {
+      const top = el.scrollTop
+      const dist = el.scrollHeight - top - el.clientHeight
+      if (dist <= 2) {
+        atBottomRef.current = true
+      } else if (gestureRef.current && top < lastTopRef.current - 1) {
+        stickRef.current = false
+        atBottomRef.current = false
+      } else if (atBottomRef.current && !gestureRef.current) {
+        // Pinned, but layout — not the user — drifted us above the true bottom: re-snap now.
+        el.scrollTop = el.scrollHeight
+        lastTopRef.current = el.scrollTop
+        saveScroll()
+        return
+      }
+      lastTopRef.current = top
+      saveScroll()
+    }
+    const onGesture = (): void => markGesture()
+    el.addEventListener('wheel', onWheel, { passive: true })
+    el.addEventListener('scroll', onScroll, { passive: true })
+    el.addEventListener('mousedown', onGesture, { passive: true })
+    el.addEventListener('touchstart', onGesture, { passive: true })
+    el.addEventListener('touchmove', onGesture, { passive: true })
+    el.addEventListener('keydown', onGesture, { passive: true })
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => pinBottom())
+      ro.observe(el)
+      if (el.firstElementChild) ro.observe(el.firstElementChild)
+      contentRo.current = ro
+    }
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('mousedown', onGesture)
+      el.removeEventListener('touchstart', onGesture)
+      el.removeEventListener('touchmove', onGesture)
+      el.removeEventListener('keydown', onGesture)
+      contentRo.current?.disconnect()
+      contentRo.current = null
+      if (gestureTimer.current) clearTimeout(gestureTimer.current)
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      if (bottomRaf.current) cancelAnimationFrame(bottomRaf.current)
+      for (const t of bottomTimers.current) clearTimeout(t)
+      scrollStateById.set(id, { scrollTop: el.scrollTop, atBottom: atBottomRef.current })
+    }
+  }, [id, pinBottom])
 
   // grow the textarea with its content
   useEffect(() => {
@@ -193,6 +327,7 @@ export function ChatView({ project, session }: { project: PcbProject; session: C
     if (!text && !atts.length) return
     if (atts.length) window.api.sendChat(id, text, atts)
     else window.api.sendChat(id, text)
+    followNewOutput()
     if (text) pushInputHistory(text)
     setDraft('')
     if (atts.length) setAttachments(id, [])
@@ -211,11 +346,13 @@ export function ChatView({ project, session }: { project: PcbProject; session: C
       setMultiSel([])
     } else {
       window.api.answerChat(id, { kind: 'question', requestId: pending.requestId, answers: next })
+      followNewOutput()
     }
   }
   const answerPermission = (allow: boolean): void => {
     if (pending?.kind !== 'permission') return
     window.api.answerChat(id, { kind: 'permission', requestId: pending.requestId, allow, message: allow ? undefined : draft.trim() || undefined })
+    followNewOutput()
     setDraft('')
     exitHistory()
   }
@@ -339,7 +476,7 @@ export function ChatView({ project, session }: { project: PcbProject; session: C
                     ...customPrompts.map((p) => ({ key: p.id, label: p.title, onClick: () => insertPrompt(p.content) })),
                     { key: '__manage__', label: 'Керувати промтами…', separatorBefore: customPrompts.length > 0, onClick: () => setLibraryOpen(true) }
                   ]} />
-                <Dropdown triggerClass="chat-iconbtn" triggerTitle={anyBusy ? 'Конфігурація Claude для цього проекту (зміна перезапустить усі його сесії)' : 'Конфігурація Claude (скіли, команди) для цього проекту'} triggerContent={<GearIcon />} direction="up" menuClass="profiles-menu" onClose={applyStagedProfiles}
+                <Dropdown triggerClass="chat-iconbtn" triggerTitle={busy ? 'Конфігурація Claude для цієї сесії (зміна перезапустить лише її)' : 'Конфігурація Claude (скіли, команди) для цієї сесії'} triggerContent={<GearIcon />} direction="up" menuClass="profiles-menu" onClose={applyStagedProfiles}
                   items={[
                     { key: '__none__', label: 'Стандартний ~/.claude (вимкнути всі)', checked: shownProfileIds.length === 0, keepOpen: true, onClick: () => setStagedProfileIds([]) },
                     ...claudeProfiles.map((p) => ({ key: p.id, label: p.name, checked: shownProfileIds.includes(p.id), toggle: true, keepOpen: true, onClick: () => stageProfileFlip(p.id) })),
@@ -388,7 +525,7 @@ export function ChatView({ project, session }: { project: PcbProject; session: C
         </div>
       </div>
       {libraryOpen && <PromptLibraryModal project={project} onClose={() => setLibraryOpen(false)} onInsert={(t) => { insertPrompt(t); setLibraryOpen(false) }} />}
-      {profilesOpen && <ClaudeProfilesModal project={project} onClose={() => setProfilesOpen(false)} />}
+      {profilesOpen && <ClaudeProfilesModal project={project} session={session} onClose={() => setProfilesOpen(false)} />}
       {workflowItemId && <WorkflowPanel sessionId={id} itemId={workflowItemId} onClose={() => setWorkflowItemId(null)} />}
     </div>
   )

@@ -117,7 +117,7 @@ const api = {
   updateProfile: (p: ClaudeProfile): Promise<void> => ipcRenderer.invoke('profiles:update', p),
   removeProfile: (id: string): Promise<void> => ipcRenderer.invoke('profiles:remove', id),
   isClaudeConfigDir: (dir: string): Promise<boolean> => ipcRenderer.invoke('profiles:isConfigDir', dir),
-  setProjectProfiles: (projectId: string, ids: string[]): Promise<boolean> => ipcRenderer.invoke('profiles:setForProject', projectId, ids),
+  setSessionProfiles: (sessionId: string, ids: string[]): Promise<boolean> => ipcRenderer.invoke('profiles:setForSession', sessionId, ids),
   rebuildConfigs: (): Promise<number> => ipcRenderer.invoke('profiles:rebuild'),
   homeDir: (): Promise<string> => ipcRenderer.invoke('sys:homeDir'),
   // usage limits

@@ -8,6 +8,7 @@ import { writeFileSync } from 'fs'
 import { killAllChats, onChatBusy, onChatEvent, onChatParams, onChatSessionId, setChatStorageDir } from './claudeChat'
 import { patchSession, pinUnpinnedProjects } from './projects'
 import { onUsage, startUsagePolling, stopUsagePolling } from './usagePoller'
+import { startCredentialsSync } from './credentialsSync'
 import { setConfig } from './store'
 
 function createWindow(): BrowserWindow {
@@ -71,6 +72,7 @@ void app.whenReady().then(async () => {
     if (!win.isDestroyed()) win.webContents.send('claude:usage', windows)
   })
   startUsagePolling()
+  startCredentialsSync(app.getPath('userData'))
   onRulesChanged(() => {
     if (!win.isDestroyed()) win.webContents.send('rules:changed', snapshot())
   })

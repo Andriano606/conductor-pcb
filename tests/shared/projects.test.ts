@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addSession, findSession, isBoardFile, isSkippedDir, migrateSessions, projectFromFiles, reportStemFor, selectedBoards, removeProject, removeSession, renameSession, sessionLabel, updateSession, upsertProject } from '@shared/projects'
+import { addSession, findSession, isBoardFile, isSkippedDir, migrateSessionProfiles, migrateSessions, projectFromFiles, reportStemFor, selectedBoards, removeProject, removeSession, renameSession, sessionLabel, updateSession, upsertProject } from '@shared/projects'
 
 describe('projectFromFiles', () => {
   it('derives name and files from a folder listing, ignoring backups', () => {
@@ -62,6 +62,31 @@ describe('chat sessions (tabs)', () => {
     const l4 = removeSession(l3, 'pa')
     expect(l4[0].sessions.map((s) => s.id)).toEqual(['s2'])
     expect(removeSession(l4, 's2')[0].sessions.map((s) => s.id)).toEqual(['s2'])
+  })
+})
+
+describe('Claude config profiles per session tab', () => {
+  const base = { id: 'p', name: 'b', dir: '/x', proFile: '', boardFile: '/x/b.kicad_pcb', createdAt: 1 }
+  it('moves the legacy per-project set into every tab that has none, once', () => {
+    const legacy = { ...base, claudeConfigProfileIds: ['a', 'b'], sessions: [{ id: 'p', createdAt: 1 }, { id: 's2', createdAt: 2, claudeConfigProfileIds: [] }] }
+    const m = migrateSessionProfiles(legacy)
+    expect(m.claudeConfigProfileIds).toBeUndefined()
+    expect(m.newSessionProfileIds).toEqual(['a', 'b'])
+    expect(m.sessions[0].claudeConfigProfileIds).toEqual(['a', 'b'])
+    expect(m.sessions[1].claudeConfigProfileIds).toEqual([]) // a tab's own choice is never overwritten
+    expect(migrateSessionProfiles(m)).toBe(m)
+  })
+  it('drops an empty legacy set without touching the tabs', () => {
+    const m = migrateSessionProfiles({ ...base, claudeConfigProfileIds: [], sessions: [{ id: 'p', createdAt: 1 }] })
+    expect(m).toEqual({ ...base, sessions: [{ id: 'p', createdAt: 1 }] })
+  })
+  it('a new tab starts with the set chosen last in the project, as its own copy', () => {
+    const p = { ...base, newSessionProfileIds: ['a'], sessions: [{ id: 'p', createdAt: 1 }] }
+    const { list, session } = addSession([p], 'p', 's2', 9)
+    expect(session).toEqual({ id: 's2', createdAt: 9, claudeConfigProfileIds: ['a'] })
+    expect(session!.claudeConfigProfileIds).not.toBe(p.newSessionProfileIds)
+    expect(list[0].sessions[0].claudeConfigProfileIds).toBeUndefined()
+    expect(addSession([{ ...p, newSessionProfileIds: [] }], 'p', 's3', 9).session).toEqual({ id: 's3', createdAt: 9 })
   })
 })
 

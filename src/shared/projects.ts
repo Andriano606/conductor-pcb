@@ -72,6 +72,22 @@ export function migrateSessions(p: PcbProject): PcbProject {
   return { ...rest, sessions: [first] }
 }
 
+/**
+ * Claude config profiles used to be one set per project; now every session tab has its own. Copy the
+ * legacy project set into each session that has none and keep it as the default for new tabs. The
+ * legacy field is dropped, so this runs once.
+ */
+export function migrateSessionProfiles(p: PcbProject): PcbProject {
+  if (p.claudeConfigProfileIds === undefined) return p
+  const { claudeConfigProfileIds: ids, ...rest } = p
+  if (!ids.length) return rest
+  return {
+    ...rest,
+    newSessionProfileIds: rest.newSessionProfileIds ?? ids,
+    sessions: rest.sessions.map((s) => (s.claudeConfigProfileIds === undefined ? { ...s, claudeConfigProfileIds: [...ids] } : s))
+  }
+}
+
 export function findSession(list: PcbProject[], sessionId: string): { project: PcbProject; session: ChatSession } | undefined {
   for (const project of list) {
     const session = project.sessions?.find((s) => s.id === sessionId)
@@ -85,6 +101,8 @@ export function addSession(list: PcbProject[], projectId: string, id: string, no
   const p = list.find((x) => x.id === projectId)
   if (!p) return { list }
   const session: ChatSession = { id, createdAt: now }
+  // a new tab starts with the profile set chosen last in this project; from then on it is its own
+  if (p.newSessionProfileIds?.length) session.claudeConfigProfileIds = [...p.newSessionProfileIds]
   return { list: list.map((x) => (x.id === projectId ? { ...x, sessions: [...x.sessions, session] } : x)), session }
 }
 

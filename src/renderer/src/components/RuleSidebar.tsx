@@ -1,6 +1,7 @@
 import React from 'react'
 import type { EffectiveRule } from '@shared/types'
 import { CATEGORIES } from '@shared/types'
+import { findingHits } from '@shared/rules'
 import { useStore } from '../store'
 import { SeverityDot } from './SeverityBadge'
 import { Toggle } from './Toggle'
@@ -15,7 +16,8 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
   const setCategory = useStore((s) => s.setCategory)
   const onlyEnabled = useStore((s) => s.onlyEnabled)
   const setOnlyEnabled = useStore((s) => s.setOnlyEnabled)
-  const total = useStore((s) => s.rules.length)
+  const allRules = useStore((s) => s.rules)
+  const total = allRules.length
   const errors = useStore((s) => s.errors)
   const api = useStore((s) => s.api)
   const report = useStore((s) => s.report)
@@ -26,8 +28,11 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
   const setGlobalRulesOpen = useStore((s) => s.setGlobalRulesOpen)
   const scopeProject = projects.find((p) => p.id === ruleScope) ?? null
 
-  const hits = new Map<string, number>()
-  if (report) for (const f of report.findings) hits.set(f.code, (hits.get(f.code) ?? 0) + 1)
+  // Per-rule counts use every rule of the scope (not the filtered list), so a search never turns owned codes into unclaimed ones.
+  const found = findingHits(report, allRules)
+  const hits = found.byRule
+  const q = query.trim().toUpperCase()
+  const unclaimed = category === 'all' ? found.unclaimed.filter((u) => !q || u.code.includes(q) || u.title.toUpperCase().includes(q)) : []
 
   const groups = CATEGORIES.map((c) => ({ ...c, rules: rules.filter((r) => r.category === c.id) })).filter(
     (g) => g.rules.length > 0
@@ -97,7 +102,24 @@ export function RuleSidebar({ rules }: { rules: EffectiveRule[] }): JSX.Element 
             ))}
           </section>
         ))}
-        {rules.length === 0 && <div className="muted pad">Нічого не знайдено.</div>}
+        {unclaimed.length > 0 && (
+          <section className="group unclaimed" aria-label="Знахідки без правила">
+            <div className="group-title" title="Ці коди прийшли з KiCad DRC (зокрема звірка зі схемою) і не мають правила в бібліотеці, тому їх не видно вище — але вони входять у число на табі «Правила». Щоб керувати ними, імпортуйте правило з таким кодом.">
+              Без правила · {unclaimed.reduce((n, u) => n + u.count, 0)}
+            </div>
+            {unclaimed.map((u) => (
+              <div key={u.code} className="rule-row toggled unclaimed-row" title={`${u.title}\nПравила з кодом ${u.code} немає — знахідка з KiCad DRC показана як є.`}>
+                <SeverityDot severity={u.severity} />
+                <span className="rule-row-text">
+                  <span className="rule-row-title">{u.title}</span>
+                  <span className="rule-row-code">{u.code}</span>
+                </span>
+                <span className="hit-badge" title="Знахідок в останньому звіті">{u.count}</span>
+              </div>
+            ))}
+          </section>
+        )}
+        {rules.length === 0 && unclaimed.length === 0 && <div className="muted pad">Нічого не знайдено.</div>}
       </div>
       <div className="sidebar-footer">
         <span className={'api-dot' + (api.running ? ' on' : '')} />

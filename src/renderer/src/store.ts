@@ -92,7 +92,7 @@ interface State {
   createClaudeProfile: (name: string, path: string, env: EnvVar[]) => Promise<void>
   updateClaudeProfile: (p: ClaudeProfile) => Promise<void>
   deleteClaudeProfile: (id: string) => Promise<void>
-  setProjectProfiles: (projectId: string, ids: string[]) => Promise<void>
+  setSessionProfiles: (sessionId: string, ids: string[]) => Promise<void>
   rebuildClaudeConfigs: () => Promise<void>
   setUsage: (w: UsageWindow[]) => void
   askConfirm: (message: string) => Promise<boolean>
@@ -204,8 +204,8 @@ export const useStore = create<State>((set, get) => ({
     const [claudeProfiles, projects] = await Promise.all([window.api.listProfiles(), window.api.listProjects()])
     set({ claudeProfiles, projects })
   },
-  setProjectProfiles: async (projectId, ids) => {
-    await window.api.setProjectProfiles(projectId, ids)
+  setSessionProfiles: async (sessionId, ids) => {
+    await window.api.setSessionProfiles(sessionId, ids)
     set({ projects: await window.api.listProjects() })
   },
   rebuildClaudeConfigs: async () => {

@@ -288,6 +288,13 @@ export interface ChatSession {
    * flag layer, so it is persisted here and re-applied after every handshake.
    */
   claudeUltracode?: boolean
+  /**
+   * Ids of the ClaudeProfile(s) enabled for this tab's chat (empty/unset = plain ~/.claude). Like the
+   * model and the effort this is a per-session knob: changing it restarts this tab only.
+   */
+  claudeConfigProfileIds?: string[]
+  /** The merged CLAUDE_CONFIG_DIR built for those profiles (set whenever at least one is enabled). */
+  mergedConfigDir?: string
 }
 
 export interface PcbProject {
@@ -322,9 +329,11 @@ export interface PcbProject {
   /** @deprecated pre-tabs fields, migrated into sessions[0] on load. */
   claudeModel?: string
   claudeEffort?: string
-  /** Ids of the ClaudeProfile(s) enabled for this project's chat (empty = plain ~/.claude). */
+  /** The profile set a new session tab starts with: the set chosen last in any tab of this project. */
+  newSessionProfileIds?: string[]
+  /** @deprecated pre per-session profiles, copied into every session on load (see migrateSessionProfiles). */
   claudeConfigProfileIds?: string[]
-  /** The merged CLAUDE_CONFIG_DIR built for those profiles (set whenever at least one is enabled). */
+  /** @deprecated the per-project merged dir of that time; older transcripts may still live there. */
   mergedConfigDir?: string
 }
 

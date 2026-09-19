@@ -93,6 +93,32 @@ describe('rules scope', () => {
     useStore.setState({ rules: [applyOverride(ruleA, { enabled: false }), applyOverride(ruleB, undefined)] })
     expect(await screen.findByLabelText('Увімкнено 1 з 2 правил для проекту board')).toHaveTextContent('1')
   })
+  it('the tab badge counts every finding while the sidebar lists the codes without a rule separately', async () => {
+    mockApi()
+    useStore.setState({ api: { running: false, url: '' } as never })
+    const f = (code: string, severity: 'error' | 'warning' | 'info', title = code): { code: string; severity: 'error' | 'warning' | 'info'; title: string } => ({ code, severity, title })
+    useStore.setState({
+      report: {
+        board: 'b',
+        generated: 'now',
+        findings: [f('A_RULE', 'warning'), f('A_RULE', 'warning'), f('PARITY_EXTRA_FOOTPRINT', 'warning', 'Extra footprint'), f('PARITY_EXTRA_FOOTPRINT', 'warning', 'Extra footprint')]
+      }
+    })
+    render(<><TopBar /><RuleSidebar rules={useStore.getState().rules} /></>)
+    const badge = screen.getByLabelText(/Знахідок в останньому звіті: 4/)
+    expect(badge).toHaveTextContent('4')
+    expect(badge.title).toContain('з правилом 2, без правила 2')
+    const group = screen.getByLabelText('Знахідки без правила')
+    expect(group).toHaveTextContent('Без правила · 2')
+    expect(group).toHaveTextContent('PARITY_EXTRA_FOOTPRINT')
+    expect(group).toHaveTextContent('Extra footprint')
+    // a search that misses the unclaimed code hides the section; a match keeps it while the rule list is empty
+    useStore.getState().setQuery('A_RULE')
+    await vi.waitFor(() => expect(screen.queryByLabelText('Знахідки без правила')).not.toBeInTheDocument())
+    useStore.getState().setQuery('parity')
+    await vi.waitFor(() => expect(screen.getByLabelText('Знахідки без правила')).toBeInTheDocument())
+    useStore.getState().setQuery('')
+  })
   it('the rules tab sidebar names the project, toggles rules for it and imports into its scope', async () => {
     const api = mockApi()
     render(<RuleSidebar rules={useStore.getState().rules} />)

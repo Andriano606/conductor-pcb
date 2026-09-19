@@ -123,6 +123,10 @@ a { color: var(--accent); }
 .rule-row-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .rule-row-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rule-row-code { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+.group.unclaimed { border-top: 1px dashed var(--hairline); margin-top: 8px; }
+.unclaimed-row { cursor: default; }
+.unclaimed-row:hover { background: transparent; }
+.unclaimed-row .rule-row-title { color: var(--text-dim); }
 .sev-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .sev-dot.error { background: var(--danger); }
 .sev-dot.warning { background: var(--warn); }

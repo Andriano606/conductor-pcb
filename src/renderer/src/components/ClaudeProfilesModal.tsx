@@ -1,24 +1,25 @@
 import React, { useEffect, useState } from 'react'
-import type { ClaudeProfile, EnvVar, PcbProject } from '@shared/types'
+import type { ChatSession, ClaudeProfile, EnvVar, PcbProject } from '@shared/types'
 import { useStore } from '../store'
-import { projectBusy, useChatStore } from '../chatStore'
+import { useChatStore } from '../chatStore'
+import { sessionLabel } from '@shared/projects'
 import { Toggle } from './Toggle'
 
 /**
  * Claude config overlays (skills, commands, agents, CLAUDE.md, settings): a global list of
- * source folders, each toggled per project. Enabled ones are merged on top of ~/.claude into
- * an app-owned CLAUDE_CONFIG_DIR for that project's chat. Ported from conductor-linux.
+ * source folders, each toggled per session tab (like the model and the effort). Enabled ones are
+ * merged on top of ~/.claude into an app-owned CLAUDE_CONFIG_DIR for that tab's chat. Ported from conductor-linux.
  */
-export function ClaudeProfilesModal({ project, onClose }: { project: PcbProject; onClose: () => void }): JSX.Element {
+export function ClaudeProfilesModal({ project, session, onClose }: { project: PcbProject; session: ChatSession; onClose: () => void }): JSX.Element {
   const claudeProfiles = useStore((s) => s.claudeProfiles)
   const createClaudeProfile = useStore((s) => s.createClaudeProfile)
   const updateClaudeProfile = useStore((s) => s.updateClaudeProfile)
   const deleteClaudeProfile = useStore((s) => s.deleteClaudeProfile)
-  const setProjectProfiles = useStore((s) => s.setProjectProfiles)
+  const setSessionProfiles = useStore((s) => s.setSessionProfiles)
   const rebuildClaudeConfigs = useStore((s) => s.rebuildClaudeConfigs)
   const askConfirm = useStore((s) => s.askConfirm)
-  const busy = useChatStore((s) => projectBusy(s.chats, project))
-  const currentIds = project.claudeConfigProfileIds ?? []
+  const busy = useChatStore((s) => s.chats[session.id]?.busy ?? false)
+  const currentIds = session.claudeConfigProfileIds ?? []
   const currentKey = [...currentIds].sort().join(',')
   const [enabledIds, setEnabledIds] = useState<Set<string>>(new Set(currentIds))
   useEffect(() => setEnabledIds(new Set(currentIds)), [currentKey])
@@ -59,7 +60,7 @@ export function ClaudeProfilesModal({ project, onClose }: { project: PcbProject;
     if (await askConfirm('Перебілдити конфіги? Вихідні теки буде перечитано, обʼєднані конфіги перебудовано, активні чати перезапущено (розмови збережуться).')) void rebuildClaudeConfigs()
   }
   const applySelection = (): void => {
-    if (selectionChanged) void setProjectProfiles(project.id, claudeProfiles.filter((p) => enabledIds.has(p.id)).map((p) => p.id))
+    if (selectionChanged) void setSessionProfiles(session.id, claudeProfiles.filter((p) => enabledIds.has(p.id)).map((p) => p.id))
     onClose()
   }
 
@@ -68,16 +69,16 @@ export function ClaudeProfilesModal({ project, onClose }: { project: PcbProject;
       <div className="modal" role="dialog" aria-label="Конфігурації Claude">
         <header><h2>Конфігурації Claude</h2><button className="icon-btn" onClick={onClose} aria-label="Закрити">✕</button></header>
         <div className="field">
-          <label>Конфіги для проекту «{project.name}»</label>
-          <div className="hint">Увімкнені конфіги (скіли, команди, агенти, CLAUDE.md, налаштування) накладаються на глобальний ~/.claude і діють лише для чату цього проекту.</div>
-          {busy && <div className="hint">Claude зараз працює — застосування перезапустить сесію. Краще зачекати завершення відповіді.</div>}
+          <label>Конфіги для сесії «{sessionLabel(project, session.id)}» проекту «{project.name}»</label>
+          <div className="hint">Увімкнені конфіги (скіли, команди, агенти, CLAUDE.md, налаштування) накладаються на глобальний ~/.claude і діють лише для цієї сесії; інші сесії проекту мають свій набір. Нова сесія стартує з набором, обраним у проекті останнім.</div>
+          {busy && <div className="hint">Claude зараз працює — застосування перезапустить цю сесію. Краще зачекати завершення відповіді.</div>}
           {claudeProfiles.length === 0 ? (
             <div className="hint">Ще немає конфігів. Додайте перший нижче, наприклад папку <code>.claude</code> якогось проекту зі скілами.</div>
           ) : (
             <div className="prompt-list config-list">
               {claudeProfiles.map((p) => (
                 <div key={p.id} className={`prompt-item config-row ${editingId === p.id ? 'sel' : ''}`}>
-                  <Toggle size="sm" checked={enabledIds.has(p.id)} onChange={() => toggleProfile(p.id)} label="Увімкнути для цього проекту" />
+                  <Toggle size="sm" checked={enabledIds.has(p.id)} onChange={() => toggleProfile(p.id)} label="Увімкнути для цієї сесії" />
                   <div className="prompt-text">
                     <div className="prompt-title">{p.name}</div>
                     <div className="prompt-preview">{p.path}</div>
@@ -92,7 +93,7 @@ export function ClaudeProfilesModal({ project, onClose }: { project: PcbProject;
           )}
           <div className="row" style={{ marginTop: 8, justifyContent: 'space-between' }}>
             {claudeProfiles.length > 0 ? <button className="btn" title="Перечитати вихідні теки й перебудувати обʼєднані конфіги" onClick={() => void rebuild()}>↻ Перебілдити конфіги</button> : <span />}
-            <button className="btn primary" disabled={!selectionChanged} onClick={applySelection}>Застосувати для проекту</button>
+            <button className="btn primary" disabled={!selectionChanged} onClick={applySelection}>Застосувати для сесії</button>
           </div>
         </div>
         <details className="merge-help">
@@ -124,7 +125,7 @@ export function ClaudeProfilesModal({ project, onClose }: { project: PcbProject;
         </div>
         <div className="field">
           <label>Змінні середовища</label>
-          {env.length === 0 ? <div className="hint">Немає змінних. Будуть експортовані в claude-сесію проектів з цим конфігом.</div> : (
+          {env.length === 0 ? <div className="hint">Немає змінних. Будуть експортовані в claude-сесії з цим конфігом.</div> : (
             <div className="env-list">
               {env.map((v, i) => (
                 <div className="row env-row" key={i}>

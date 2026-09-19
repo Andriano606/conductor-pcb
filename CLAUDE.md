@@ -81,7 +81,7 @@ when sources are newer (tested in `tests/scripts/launch.test.ts`).
   - `rulesRepo.ts` bundled `rules/` + user rules dir, watched; `api.ts` local HTTP API (`handle()` is testable without a socket).
   - `claudeChat.ts` — port of conductor-linux's chat (no local commands): spawns
     `claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio [--resume] --mcp-config <file> <claudeArgs>`
-    through the login shell (no app-side system prompt: board-work instructions come from the `kicad-pcb-layout` Claude config, skill `pcb-layout-fix`, enabled per project via ⚙ in the composer), parses NDJSON (`handleLine`), keeps a `ChatItem[]` transcript per session tab
+    through the login shell (no app-side system prompt: board-work instructions come from the `kicad-pcb-layout` Claude config, skill `pcb-layout-fix`, enabled per session tab via ⚙ in the composer), parses NDJSON (`handleLine`), keeps a `ChatItem[]` transcript per session tab
     (persisted in `<userData>/chats/<sessionId>.json`; a migrated project's first session reuses the project id), turns `can_use_tool` control requests into
     `ChatPending` (permission / AskUserQuestion), streams sequenced `chat:event`s to the renderer. The
     `initialize` handshake supplies slash commands and models (`meta` event); `/model` and effort are
@@ -124,9 +124,15 @@ when sources are newer (tested in `tests/scripts/launch.test.ts`).
     session tabs (`createChatSession`/`closeChatSession`/`renameChatSession`, pure helpers in `src/shared/projects.ts`,
     `migrateSessions` on config load), start/restart a session's chat (`startSessionChat`), open pcbnew, KiCad status, run the checker CLI.
     **Claude config profiles** (ported from conductor-linux): `AppConfig.claudeProfiles` is a global list of
-    source folders (skills/commands/agents/CLAUDE.md/settings); each project enables a subset
-    (`PcbProject.claudeConfigProfileIds`). `configMerge.ts` builds `<userData>/claude-configs/<projectId>` from
-    `~/.claude` + the overlays and the chat is spawned with `CLAUDE_CONFIG_DIR` pointing there (`StartOpts.env`).
+    source folders (skills/commands/agents/CLAUDE.md/settings); each **session tab** enables its own subset
+    (`ChatSession.claudeConfigProfileIds`) — a per-session knob like the model and the effort, so
+    `setSessionProfiles` restarts that one tab only (when it runs) and never its siblings. `configMerge.ts` builds
+    `<userData>/claude-configs/<sessionId>` from `~/.claude` + the overlays and the chat is spawned with
+    `CLAUDE_CONFIG_DIR` pointing there (`StartOpts.env`, `sessionClaudeEnv`); `carryResumeTranscript` copies the
+    tab's `--resume` transcript between config dirs (newest copy wins). A new tab starts with the set chosen last in
+    the project (`PcbProject.newSessionProfileIds`); the old per-project `claudeConfigProfileIds` is copied into
+    every tab once on load (`migrateSessionProfiles`), and its shared dir `claude-configs/<projectId>` stays a
+    transcript source. Closing a tab deletes its merged dir.
   - `usagePoller.ts` — runs `claude -p --output-format json "/usage"` every 30 s, parses the windows, persists
     them in `AppConfig.lastUsage`, pushes `claude:usage`; the sidebar's bottom-left `UsageMeters` renders them.
   - Prompt library: `AppConfig.customPrompts`, `$PCB_PROJECT_NAME/$PCB_PROJECT_DIR/$PCB_BOARD_FILE` variables

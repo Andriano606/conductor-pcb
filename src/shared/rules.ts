@@ -2,6 +2,7 @@ import type {
   AppConfig,
   CheckerConfigExport,
   EffectiveRule,
+  FindingsReport,
   KernelInfo,
   PcbProject,
   Rule,
@@ -179,6 +180,50 @@ export function withProjectOverride(projects: PcbProject[], projectId: string, c
 }
 
 /** Sort: category order, then severity, then code. */
+/** A finding code from the last report that no rule in the library owns (e.g. KiCad DRC parity codes). */
+export interface UnclaimedFinding {
+  code: string
+  count: number
+  severity: Severity
+  /** Title of the first finding with this code — what the checker said. */
+  title: string
+}
+
+export interface FindingHits {
+  /** Findings per rule code, only for codes that have a rule. */
+  byRule: Map<string, number>
+  /** Codes without a rule, most frequent first. The checker passes unclaimed KiCad DRC findings through as they are. */
+  unclaimed: UnclaimedFinding[]
+  total: number
+  claimed: number
+}
+
+/**
+ * Splits the last report's findings into those owned by a rule of the library and those without one, so
+ * the «Правила» tab badge (every finding) and the per-rule badges in the sidebar (only owned codes) reconcile.
+ */
+export function findingHits(report: FindingsReport | null | undefined, rules: Pick<Rule, 'code'>[]): FindingHits {
+  const byRule = new Map<string, number>()
+  const other = new Map<string, UnclaimedFinding>()
+  const known = new Set(rules.map((r) => r.code))
+  const sev = (s: Severity): number => SEVERITIES.indexOf(s)
+  for (const f of report?.findings ?? []) {
+    if (known.has(f.code)) {
+      byRule.set(f.code, (byRule.get(f.code) ?? 0) + 1)
+      continue
+    }
+    const u = other.get(f.code)
+    if (u) {
+      u.count++
+      if (sev(f.severity) >= 0 && sev(f.severity) < sev(u.severity)) u.severity = f.severity
+    } else other.set(f.code, { code: f.code, count: 1, severity: f.severity, title: f.title })
+  }
+  const unclaimed = [...other.values()].sort((a, b) => b.count - a.count || a.code.localeCompare(b.code))
+  const total = report?.findings.length ?? 0
+  const claimed = total - unclaimed.reduce((n, u) => n + u.count, 0)
+  return { byRule, unclaimed, total, claimed }
+}
+
 export function sortRules<T extends Rule>(rules: T[]): T[] {
   const cat = new Map(CATEGORIES.map((c, i) => [c.id, i]))
   const sev = new Map(SEVERITIES.map((s, i) => [s, i]))

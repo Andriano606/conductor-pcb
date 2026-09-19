@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { spawn } from 'child_process'
 import type { ChildProcess } from 'child_process'
@@ -10,6 +10,7 @@ import { snapshotOverrides, withProjectOverride } from '../shared/rules'
 import { getConfig, setConfig } from './store'
 import { bundledRulesDir, deleteProjectRules, getRules } from './rulesRepo'
 import { buildMergedConfig } from './configMerge'
+import { CREDENTIALS_FILE, syncCredentials } from './credentialsSync'
 import type { ClaudeProfile } from '../shared/types'
 import { buildEnv } from './env'
 import { restartChat, startChat, chatRunning, deleteChatHistory, killChat } from './claudeChat'
@@ -95,11 +96,14 @@ export function createChatSession(projectId: string, userData: string): ChatSess
 }
 
 /** Close a session tab: kill its claude, drop its transcript, forget it. The last session stays. */
-export function closeChatSession(sessionId: string): boolean {
+export function closeChatSession(sessionId: string, userData?: string): boolean {
   const found = getSession(sessionId)
   if (!found || found.project.sessions.length <= 1) return false
   killChat(sessionId)
   deleteChatHistory(sessionId)
+  // Its merged config goes too — except the dir named after the project, which the pre per-session
+  // profiles shared between all tabs: the other tabs' transcripts may still wait there to be carried over.
+  if (userData && sessionId !== found.project.id) rmSync(sessionConfigDir(sessionId, userData), { recursive: true, force: true })
   setConfig({ projects: removeSession(getConfig().projects, sessionId) })
   return true
 }
@@ -128,9 +132,9 @@ export function mcpConfigFor(p: PcbProject, userData: string): string {
   return file
 }
 
-/** Profiles enabled for a project, in saved-list order (dangling ids dropped). */
-export function projectProfiles(p: PcbProject): ClaudeProfile[] {
-  const ids = new Set(p.claudeConfigProfileIds ?? [])
+/** Profiles enabled for a session tab, in saved-list order (dangling ids dropped). */
+export function sessionProfiles(session: ChatSession): ClaudeProfile[] {
+  const ids = new Set(session.claudeConfigProfileIds ?? [])
   return getConfig().claudeProfiles.filter((x) => ids.has(x.id))
 }
 
@@ -146,75 +150,96 @@ export function transcriptSlug(cwd: string): string {
 }
 
 /**
- * `--resume` reads `<CLAUDE_CONFIG_DIR>/projects/<slug>/<sessionId>.jsonl`. When a project's
- * config dir changes (profiles enabled/disabled/rebuilt) every session's conversation would be
- * lost, so copy each transcript from wherever it currently lives into the target dir.
- * Idempotent; returns true when every session with a Claude id now has its transcript there.
+ * `--resume` reads `<CLAUDE_CONFIG_DIR>/projects/<slug>/<claudeSessionId>.jsonl`. When a session's
+ * config dir changes (profiles enabled/disabled/rebuilt) its conversation would be lost, so copy the
+ * transcript from wherever it currently lives into the target dir.
+ * The newest copy wins: a tab that toggles its profiles back and forth leaves an older copy in the
+ * dir it returns to. Idempotent; returns true when the transcript is in `toDir` afterwards.
  */
-export function carryResumeTranscript(p: PcbProject, toDir: string, candidates: string[]): boolean {
-  const ids = p.sessions.map((s) => s.claudeSessionId).filter((x): x is string => !!x)
-  if (!ids.length) return false
-  let all = true
-  for (const claudeSessionId of ids) {
-    const rel = join('projects', transcriptSlug(p.dir), `${claudeSessionId}.jsonl`)
-    const dest = join(toDir, rel)
-    if (existsSync(dest)) continue
-    let copied = false
-    for (const from of candidates) {
-      const src = join(from, rel)
-      if (!from || from === toDir || !existsSync(src)) continue
-      try {
-        mkdirSync(join(toDir, 'projects', transcriptSlug(p.dir)), { recursive: true })
-        copyFileSync(src, dest)
-        copied = true
-        break
-      } catch {
-      }
+export function carryResumeTranscript(cwd: string, claudeSessionId: string | undefined, toDir: string, candidates: string[]): boolean {
+  if (!claudeSessionId) return false
+  const rel = join('projects', transcriptSlug(cwd), `${claudeSessionId}.jsonl`)
+  const dest = join(toDir, rel)
+  const mtime = (f: string): number => {
+    try {
+      return statSync(f).mtimeMs
+    } catch {
+      return -1
     }
-    if (!copied) all = false
   }
-  return all
+  let src = ''
+  let newest = mtime(dest)
+  for (const from of candidates) {
+    if (!from || from === toDir) continue
+    const t = mtime(join(from, rel))
+    if (t > newest) {
+      newest = t
+      src = join(from, rel)
+    }
+  }
+  if (!src) return newest >= 0
+  try {
+    mkdirSync(join(toDir, 'projects', transcriptSlug(cwd)), { recursive: true })
+    copyFileSync(src, dest)
+    return true
+  } catch {
+    return existsSync(dest)
+  }
 }
 
-/** (Re)build the merged CLAUDE_CONFIG_DIR for a project; returns the env to spawn claude with. */
-export function projectClaudeEnv(p: PcbProject, userData: string, rebuild = false): NodeJS.ProcessEnv {
-  const profiles = projectProfiles(p)
+/** The app-owned CLAUDE_CONFIG_DIR of one session tab. */
+export function sessionConfigDir(sessionId: string, userData: string): string {
+  return join(userData, 'claude-configs', sessionId)
+}
+
+/** (Re)build the merged CLAUDE_CONFIG_DIR of a session tab; returns the env to spawn its claude with. */
+export function sessionClaudeEnv(p: PcbProject, session: ChatSession, userData: string, rebuild = false): NodeJS.ProcessEnv {
+  const profiles = sessionProfiles(session)
   const globalDir = join(homedir(), '.claude')
-  const mergedDir = join(userData, 'claude-configs', p.id)
+  const mergedDir = sessionConfigDir(session.id, userData)
+  // Profiles used to be per project with one merged dir for all its tabs: a transcript may still live there.
+  const legacyDirs = [p.mergedConfigDir ?? '', sessionConfigDir(p.id, userData)]
   if (!profiles.length) {
     // back to plain ~/.claude: bring the conversation along
-    carryResumeTranscript(p, globalDir, [p.mergedConfigDir ?? '', mergedDir])
-    if (p.mergedConfigDir) updateProject(p.id, { mergedConfigDir: undefined })
+    carryResumeTranscript(p.dir, session.claudeSessionId, globalDir, [session.mergedConfigDir ?? '', mergedDir, ...legacyDirs])
+    if (session.mergedConfigDir) patchSession(session.id, { mergedConfigDir: undefined })
     return {}
   }
   if (rebuild || !existsSync(mergedDir)) buildMergedConfig(profiles, mergedDir)
-  carryResumeTranscript(p, mergedDir, [globalDir, p.mergedConfigDir ?? ''])
-  if (p.mergedConfigDir !== mergedDir) updateProject(p.id, { mergedConfigDir: mergedDir })
+  // The merged copy of the login must carry the same (freshest) OAuth token as ~/.claude, see credentialsSync.ts.
+  syncCredentials(userData, [join(mergedDir, CREDENTIALS_FILE)])
+  carryResumeTranscript(p.dir, session.claudeSessionId, mergedDir, [globalDir, session.mergedConfigDir ?? '', ...legacyDirs])
+  if (session.mergedConfigDir !== mergedDir) patchSession(session.id, { mergedConfigDir: mergedDir })
   return { ...profilesEnv(profiles), CLAUDE_CONFIG_DIR: mergedDir }
 }
 
-/** Restart every running session of a project so it picks up a new config; idle tabs start lazily. */
-function restartProjectChats(p: PcbProject, userData: string): void {
-  for (const s of p.sessions) if (chatRunning(s.id)) startSessionChat(s.id, userData, true)
-}
-
-/** Change which profiles a project uses and restart its chats with the rebuilt config. */
-export function setProjectProfiles(id: string, profileIds: string[], userData: string): boolean {
-  const p = updateProject(id, { claudeConfigProfileIds: profileIds })
-  if (!p) return false
-  projectClaudeEnv(p, userData, true)
-  restartProjectChats(getProject(id) ?? p, userData)
+/**
+ * Change which profiles one session tab uses and restart that tab (only when it runs; an idle tab
+ * starts lazily). The other tabs of the project keep their own sets and are not touched. The set
+ * also becomes what the project's next new tab starts with.
+ */
+export function setSessionProfiles(sessionId: string, profileIds: string[], userData: string): boolean {
+  const found = getSession(sessionId)
+  if (!found) return false
+  patchSession(sessionId, { claudeConfigProfileIds: profileIds })
+  updateProject(found.project.id, { newSessionProfileIds: profileIds })
+  const now = getSession(sessionId)
+  if (!now) return false
+  sessionClaudeEnv(now.project, now.session, userData, true)
+  if (chatRunning(sessionId)) startSessionChat(sessionId, userData, true)
   return true
 }
 
-/** Re-read every profile's source dir and rebuild all merged configs; restart affected chats. */
+/** Re-read every profile's source dir and rebuild all merged configs; restart the running chats that use one. */
 export function rebuildAllConfigs(userData: string): number {
   let n = 0
   for (const p of getConfig().projects) {
-    if (!p.claudeConfigProfileIds?.length) continue
-    projectClaudeEnv(p, userData, true)
-    restartProjectChats(getProject(p.id) ?? p, userData)
-    n++
+    for (const s of p.sessions) {
+      if (!s.claudeConfigProfileIds?.length) continue
+      sessionClaudeEnv(p, s, userData, true)
+      if (chatRunning(s.id)) startSessionChat(s.id, userData, true)
+      n++
+    }
   }
   return n
 }
@@ -225,9 +250,9 @@ export function startSessionChat(sessionId: string, userData: string, restart = 
   if (!found) return false
   const { project: p, session } = found
   const cfg = getConfig()
-  const profiles = projectProfiles(p)
+  const profiles = sessionProfiles(session)
   const opts = {
-    env: projectClaudeEnv(p, userData),
+    env: sessionClaudeEnv(p, session, userData),
     profileLabel: profiles.length ? profiles.map((x) => x.name).join(', ') : 'стандартний ~/.claude',
     cwd: p.dir,
     resume: session.claudeSessionId,

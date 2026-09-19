@@ -4,7 +4,7 @@ import { dirname, join } from 'path'
 import { randomUUID } from 'crypto'
 import type { AppConfig, ClaudeProfile, CustomPrompt, EnvVar } from '../shared/types'
 import { defaultConfig, mergeConfig } from '../shared/rules'
-import { migrateSessions } from '../shared/projects'
+import { migrateSessionProfiles, migrateSessions } from '../shared/projects'
 
 let configPath = ''
 let config: AppConfig
@@ -33,7 +33,7 @@ export function initStore(dir: string = app.getPath('userData')): AppConfig {
     }
   }
   // Pre-tabs configs kept the Claude session on the project itself; give every project its sessions list.
-  config = { ...config, projects: config.projects.map(migrateSessions) }
+  config = { ...config, projects: config.projects.map(migrateSessions).map(migrateSessionProfiles) }
   persist()
   return config
 }
@@ -74,7 +74,11 @@ export function updateClaudeProfile(profile: ClaudeProfile): void {
 export function removeClaudeProfile(id: string): void {
   setConfig({
     claudeProfiles: config.claudeProfiles.filter((p) => p.id !== id),
-    projects: config.projects.map((pr) => (pr.claudeConfigProfileIds?.includes(id) ? { ...pr, claudeConfigProfileIds: pr.claudeConfigProfileIds.filter((x) => x !== id) } : pr))
+    projects: config.projects.map((pr) => ({
+      ...pr,
+      ...(pr.newSessionProfileIds?.includes(id) ? { newSessionProfileIds: pr.newSessionProfileIds.filter((x) => x !== id) } : {}),
+      sessions: pr.sessions.map((s) => (s.claudeConfigProfileIds?.includes(id) ? { ...s, claudeConfigProfileIds: s.claudeConfigProfileIds.filter((x) => x !== id) } : s))
+    }))
   })
 }
 

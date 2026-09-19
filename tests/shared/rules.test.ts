@@ -4,10 +4,12 @@ import {
   defaultConfig,
   exportCheckerConfig,
   filterRules,
+  findingHits,
   mergeConfig,
   sortRules,
   validateRule
 } from '@shared/rules'
+import type { FindingsReport } from '@shared/types'
 import { sampleRule } from '../helpers/sample'
 
 
@@ -93,5 +95,31 @@ describe('sortRules / filterRules', () => {
     expect(filterRules(rules, 'XTAL').map((r) => r.code)).toEqual(['ONE'])
     expect(filterRules(rules, 'two').map((r) => r.code)).toEqual(['TWO'])
     expect(filterRules(rules, '')).toHaveLength(2)
+  })
+
+  it('findingHits splits the report into rule-owned codes and unclaimed DRC codes', () => {
+    const rules = [sampleRule({ code: 'DECOUPLING_FAR' }), sampleRule({ code: 'OFF_BOARD' })]
+    const f = (code: string, severity: 'error' | 'warning' | 'info', title = code): FindingsReport['findings'][number] => ({ code, severity, title })
+    const report: FindingsReport = {
+      board: 'b.kicad_pcb',
+      generated: 'now',
+      findings: [
+        f('OFF_BOARD', 'error'),
+        f('DECOUPLING_FAR', 'warning'),
+        f('DECOUPLING_FAR', 'warning'),
+        f('PARITY_FOOTPRINT_SYMBOL_FIELD_MISMATCH', 'warning', 'Footprint field mismatch'),
+        f('PARITY_FOOTPRINT_SYMBOL_FIELD_MISMATCH', 'info'),
+        f('PARITY_EXTRA_FOOTPRINT', 'warning', 'Extra footprint')
+      ]
+    }
+    const hits = findingHits(report, rules)
+    expect(hits.total).toBe(6)
+    expect(hits.claimed).toBe(3)
+    expect([...hits.byRule]).toEqual([['OFF_BOARD', 1], ['DECOUPLING_FAR', 2]])
+    expect(hits.unclaimed).toEqual([
+      { code: 'PARITY_FOOTPRINT_SYMBOL_FIELD_MISMATCH', count: 2, severity: 'warning', title: 'Footprint field mismatch' },
+      { code: 'PARITY_EXTRA_FOOTPRINT', count: 1, severity: 'warning', title: 'Extra footprint' }
+    ])
+    expect(findingHits(null, rules)).toEqual({ byRule: new Map(), unclaimed: [], total: 0, claimed: 0 })
   })
 })
